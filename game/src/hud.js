@@ -3,6 +3,11 @@
 // main.js pushes numbers in and reads callbacks out. All values are cached so the
 // DOM is only written when something actually changes.
 export function createHud(callbacks) {
+  // Screenshot staging (?shot=...) freezes the frame for a capture that can take
+  // seconds on a slow renderer, so staged HUD dressing must not expire on the
+  // normal gameplay timers while the camera is still exposing.
+  const SHOT_MODE = new URLSearchParams(window.location.search).has('shot');
+  const linger = (ms) => (SHOT_MODE ? Math.max(ms, 600000) : ms);
   const $ = (id) => document.getElementById(id);
   const els = {
     overlay: $('overlay'), title: $('overlay-title'), copy: $('overlay-copy'), play: $('play'),
@@ -15,7 +20,7 @@ export function createHud(callbacks) {
     feed: $('feed'), banner: $('banner'), bannerText: $('banner-text'),
     buy: $('buy'), buyList: $('buy-list'), buyClose: $('buy-close'), buyMoney: $('buy-money'),
     plantBar: $('plant-bar'), plantFill: $('plant-fill'), plantLabel: $('plant-label'),
-    vignette: $('vignette'), hint: $('hint'), grenades: $('grenades'),
+    vignette: $('vignette'), hint: $('hint'), grenades: $('grenades'), scope: $('scope'),
   };
   const cache = {};
   let hitTimer = 0;
@@ -31,7 +36,7 @@ export function createHud(callbacks) {
   const COPY = {
     start: {
       title: 'DUSTLINE YARD',
-      copy: 'Round-based tactical FPS. Plant the spike at site A or B, or eliminate the Jackals. First to 5 rounds takes the yard.',
+      copy: '5v5 round-based tactical FPS at golden hour. Plant the spike at site A or B, or eliminate the Jackals. First to 5 rounds takes the yard.',
       action: 'Deploy',
     },
     paused: { title: 'DUSTLINE YARD', copy: 'Paused. Click to resume.', action: 'Resume' },
@@ -82,7 +87,7 @@ export function createHud(callbacks) {
       els.hitmarker.classList.add('on');
       els.hitmarker.classList.toggle('kill', killed);
       clearTimeout(hitTimer);
-      hitTimer = setTimeout(() => els.hitmarker.classList.remove('on', 'kill'), holdMs);
+      hitTimer = setTimeout(() => els.hitmarker.classList.remove('on', 'kill'), linger(holdMs));
     },
     killFeed(text) {
       const line = document.createElement('div');
@@ -90,13 +95,13 @@ export function createHud(callbacks) {
       line.textContent = text;
       els.feed.prepend(line);
       while (els.feed.children.length > 5) els.feed.removeChild(els.feed.lastChild);
-      setTimeout(() => { if (line.parentNode) line.remove(); }, 6000);
+      setTimeout(() => { if (line.parentNode) line.remove(); }, linger(6000));
     },
     banner(text, ms = 2600) {
       els.bannerText.textContent = text;
       els.banner.classList.remove('hidden');
       clearTimeout(bannerTimer);
-      bannerTimer = setTimeout(() => els.banner.classList.add('hidden'), ms);
+      bannerTimer = setTimeout(() => els.banner.classList.add('hidden'), linger(ms));
     },
     damageFlash() {
       els.vignette.classList.add('hurt');
@@ -112,6 +117,12 @@ export function createHud(callbacks) {
       setText(els.plantLabel, 'plant', label);
     },
     setHint(text) { setText(els.hint, 'hint', text); },
+    setScope(on) {
+      if (cache.scope !== on) {
+        cache.scope = on;
+        els.scope.classList.toggle('hidden', !on);
+      }
+    },
     showOverlay(kind) {
       const c = COPY[kind];
       if (!c) return;

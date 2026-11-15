@@ -37,11 +37,13 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.18;
 document.getElementById('game').appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(PALETTE.canvas);
-scene.fog = new THREE.Fog(new THREE.Color(PALETTE.canvas), 26, 60);
+scene.background = new THREE.Color(PALETTE.sky);
+scene.fog = new THREE.Fog(new THREE.Color(PALETTE.sky), 34, 88);
 const camera = new THREE.PerspectiveCamera(74, window.innerWidth / window.innerHeight, 0.05, 160);
 scene.add(camera);
 
@@ -244,6 +246,7 @@ hud.onBuyClose(() => {
   input.requestLock();
 });
 
+let fovNow = 74;
 function syncCamera() {
   camera.position.set(body.position.x, body.position.y + body.eye, body.position.z);
   const shake = trauma * trauma * 0.03;
@@ -253,6 +256,17 @@ function syncCamera() {
     (rng() - 0.5) * shake * 0.5,
     'YXZ',
   );
+  // Aiming narrows the field of view; the LS-7's scope narrows it to a tunnel.
+  const scoped = weapons.state.current === 'ls7' && weapons.state.adsBlend > 0.65;
+  const targetFov = weapons.state.adsBlend > 0.05
+    ? (weapons.state.current === 'ls7' ? 74 - 44 * weapons.state.adsBlend : 74 - 20 * weapons.state.adsBlend)
+    : 74;
+  if (Math.abs(targetFov - fovNow) > 0.05) {
+    fovNow += (targetFov - fovNow) * 0.45;
+    camera.fov = fovNow;
+    camera.updateProjectionMatrix();
+  }
+  hud.setScope(scoped && started);
 }
 
 function aimAt(point) {
@@ -430,6 +444,8 @@ function step(dt) {
     player.step(dt, input.state.keys);
   }
 
+  weapons.setAds(!!input.state.aiming && started && body.alive);
+
   // Weapon keys.
   if (started && body.alive) {
     for (let i = 0; i < 4; i += 1) {
@@ -525,50 +541,130 @@ function settle(steps) {
   for (let i = 0; i < steps; i += 1) step(FIXED_STEP);
 }
 
+function placeBot(bot, x, z, faceX, faceZ) {
+  bot.pos.set(x, 0, z);
+  bot.yaw = Math.atan2(-(faceX - x), -(faceZ - z));
+  bot.group.position.copy(bot.pos);
+  bot.group.rotation.set(0, bot.yaw, 0);
+}
+
 function runShot(name) {
   started = true;
   hud.hideOverlay();
   rounds.startRound();
+  // Clear the round-start banner directly; each staging sets its own (or none).
+  document.getElementById('banner').classList.add('hidden');
   body.pitch = 0;
   body.yaw = 0;
-  if (name === 'start') {
-    player.reset(map.spawns.player[0], map.spawns.player[1]);
-    settle(20);
-    aimAt(tmpV.set(0, 1.5, -10));
-    hud.showOverlay('start');
-  } else if (name === 'play') {
+  const kind = name === 'start' || name === 'action' ? 'action'
+    : name === 'play' || name === 'planted' ? 'planted'
+    : name === 'plant' || name === 'scope' ? 'scope'
+    : 'buy';
+
+  if (kind === 'action') {
+    // THE COVER: a mid-lane firefight, frozen at the headshot. The player has just
+    // dropped Rook; Vex is returning fire from the arch, Sable covers from the left.
     rounds.state.phase = 'live';
-    rounds.state.phaseLeft = ROUND_SECONDS;
-    hud.banner('PLANT THE SPIKE AT A OR B — OR ELIMINATE THE JACKALS', 2600);
-    player.reset(0, 9);
-    const enemy = bots.bots[0];
-    enemy.pos.set(0, 0, -4);
-    enemy.yaw = 0;
-    enemy.group.position.copy(enemy.pos);
-    enemy.group.rotation.y = enemy.yaw;
-    const ally = bots.bots[4];
-    ally.pos.set(-4.5, 0, 7);
-    ally.group.position.copy(ally.pos);
-    settle(10);
-    aimAt(tmpV.set(enemy.pos.x, 1.55, enemy.pos.z));
-    shoot(0);
+    rounds.state.phaseLeft = 67;
+    rounds.state.wins = 2;
+    rounds.state.losses = 1;
+    rounds.state.round = 4;
+    rounds.state.money = 1150;
+    weapons.buy('vk47');
+    weapons.switchTo('vk47');
+    weapons.state.cooldown = 0;
+    weapons.state.grenades = 1;
+    player.reset(-0.5, 9.5);
+    const rook = bots.bots[0];
+    placeBot(rook, 0.8, -2.5, body.position.x, body.position.z);
+    const vex = bots.bots[1];
+    placeBot(vex, -6.0, -7.5, body.position.x, body.position.z);
+    placeBot(bots.bots[5], -7.8, 3.8, -6.0, -7.5);
+    placeBot(bots.bots[6], 6.0, 12.5, 0.8, -2.5);
     settle(6);
-    aimAt(tmpV.set(enemy.pos.x, 1.55, enemy.pos.z));
-  } else if (name === 'buy') {
+    aimAt(tmpV.set(rook.pos.x, 1.25, rook.pos.z));
+    shoot(0);
+    settle(8);
+    aimAt(tmpV.set(rook.pos.x, 1.62, rook.pos.z));
+    shoot(0);
+    // Return fire from Vex and an impact beside the player sell the exchange.
+    effects.tracer(tmpV.set(vex.pos.x, 1.35, vex.pos.z), hitPoint.set(body.position.x - 1.3, 1.1, body.position.z - 2.2));
+    effects.spark(hitPoint, 3);
+    hud.killFeed('Wren eliminated Kite');
+    hud.hitMarker(true, 4000);
+    body.hp = 76;
+    settle(3);
+    aimAt(tmpV.set(vex.pos.x, 1.4, vex.pos.z));
+  } else if (kind === 'planted') {
+    // THE DEFENCE: the spike is down at A, a Jackal is on the defuse, the player
+    // covers the ring while Pax trades fire with Havoc at the silo wall.
+    rounds.state.phase = 'planted';
+    rounds.state.phaseLeft = 18;
+    rounds.state.bombSite = 'A';
+    rounds.state.bombPos = { x: map.siteA.x, z: map.siteA.z };
+    rounds.state.wins = 3;
+    rounds.state.losses = 2;
+    rounds.state.round = 6;
+    rounds.state.money = 1750;
+    weapons.buy('vk47');
+    weapons.switchTo('vk47');
+    weapons.state.grenades = 1;
+    weapons.ammo.vk47.mag = 18;
+    player.reset(-13.2, -4.2);
+    showBomb(map.siteA.x, map.siteA.z);
+    const defuser = bots.bots[2];
+    placeBot(defuser, map.siteA.x + 1.1, map.siteA.z + 0.9, map.siteA.x, map.siteA.z);
+    const havoc = bots.bots[4];
+    placeBot(havoc, -19.2, -8.6, body.position.x, body.position.z);
+    placeBot(bots.bots[7], -10.6, -2.4, havoc.pos.x, havoc.pos.z);
+    settle(6);
+    effects.tracer(tmpV.set(-10.6, 1.35, -2.4), hitPoint.set(havoc.pos.x + 0.8, 1.2, havoc.pos.z));
+    effects.spark(hitPoint, 2);
+    hud.banner('SPIKE PLANTED AT SITE A — DEFEND IT', 3000);
+    hud.killFeed('Onyx eliminated Mara');
+    hud.setPlant(0.55, 'JACKAL DEFUSING THE SPIKE');
+    body.hp = 64;
+    aimAt(tmpV.set(defuser.pos.x, 1.3, defuser.pos.z));
+  } else if (kind === 'buy') {
+    // THE BUY: round 4, a healthy bank, the carbine already owned, grenades in hand.
+    rounds.state.money = 2400;
+    rounds.state.wins = 2;
+    rounds.state.losses = 1;
+    rounds.state.round = 4;
+    weapons.buy('vk47');
+    weapons.state.grenades = 2;
+    rounds.state.money = 1500;
     player.reset(map.spawns.player[0], map.spawns.player[1]);
     settle(20);
     aimAt(tmpV.set(0, 1.5, -10));
     hud.buildBuyMenu(rounds.buyList(), weapons.state.owned, rounds.state.money, buyWeapon, buyGrenade, 300);
     hud.showBuy(true);
-  } else if (name === 'plant') {
+  } else {
+    // THE SCOPE: down the LS-7's glass at Havoc holding the north lane, Vex wide.
     rounds.state.phase = 'live';
-    rounds.state.phaseLeft = ROUND_SECONDS;
-    hud.banner('SITE A — HOLD E TO PLANT THE SPIKE', 2600);
-    player.reset(-10.5, -6.5);
-    settle(10);
-    aimAt(tmpV.set(map.siteA.x, 0.9, map.siteA.z));
-    rounds.state.plantProgress = 0.62;
-    hud.setPlant(0.62, 'PLANTING THE SPIKE — SITE A');
+    rounds.state.phaseLeft = 84;
+    rounds.state.wins = 1;
+    rounds.state.losses = 1;
+    rounds.state.round = 3;
+    rounds.state.money = 900;
+    weapons.buy('ls7');
+    weapons.switchTo('ls7');
+    weapons.ammo.ls7.mag = 4;
+    player.reset(2.5, 11.5);
+    const havoc = bots.bots[4];
+    placeBot(havoc, -0.5, -8.0, body.position.x, body.position.z);
+    placeBot(bots.bots[1], 6.5, -3.5, body.position.x, body.position.z);
+    placeBot(bots.bots[8], -1.8, 13.8, -1.5, -13.5);
+    settle(6);
+    weapons.setAds(true);
+    weapons.state.adsBlend = 1;
+    weapons.step(0);
+    aimAt(tmpV.set(havoc.pos.x, 1.55, havoc.pos.z));
+    camera.fov = 30;
+    fovNow = 30;
+    camera.updateProjectionMatrix();
+    hud.setScope(true);
+    hud.killFeed('Pax eliminated Rook');
   }
   hud.setHealth(body.hp);
   const def = weapons.def();
@@ -608,6 +704,6 @@ hud.setAmmo(12, 48, 'P9 Sidearm', 0);
 hud.setMoney(800);
 hud.setTimer(BUY_SECONDS, 'buy');
 hud.setScore(0, 0, 1);
-hud.setAlive(3, 4);
+hud.setAlive(5, 5);
 if (shot) runShot(shot);
 else requestAnimationFrame(frame);

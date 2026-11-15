@@ -61,7 +61,14 @@ function buildViewModel(def) {
     add(0.06, 0.06, 0.2, 0, 0.08, -0.05, dark);
     add(0.07, 0.12, 0.1, 0, -0.09, 0.08, dark);
     add(0.03, 0.03, 0.3, 0, 0.03, -0.5, accent);
+    // A scope tube with a glass lens the player can actually aim through.
+    add(0.055, 0.055, 0.22, 0, 0.085, -0.18, dark);
+    const lens = add(0.04, 0.04, 0.012, 0, 0.085, -0.3, accent);
+    lens.material = new THREE.MeshBasicMaterial({ color: new THREE.Color(PALETTE.teal) });
   }
+  // Forearms and a gloved hand on the grip: the gun is held, not floating.
+  add(0.09, 0.09, 0.3, -0.02, -0.17, 0.16, dark);
+  add(0.075, 0.1, 0.12, 0.0, -0.13, 0.03, accent);
   group.position.set(0.24, -0.2, -0.42);
   return group;
 }
@@ -73,10 +80,13 @@ export function createWeapons(camera) {
     models[id].visible = false;
     camera.add(models[id]);
   }
-  const flash = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.26, 0.26),
-    new THREE.MeshBasicMaterial({ color: new THREE.Color(PALETTE.amber), transparent: true, opacity: 0.9, depthWrite: false, side: THREE.DoubleSide }),
-  );
+  const flashMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(PALETTE.sunset), transparent: true, opacity: 0.95, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
+  const flash = new THREE.Group();
+  const flashA = new THREE.Mesh(new THREE.PlaneGeometry(0.17, 0.17), flashMat);
+  const flashB = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.12), flashMat);
+  flashB.rotation.z = Math.PI / 4;
+  const flashCore = new THREE.Mesh(new THREE.PlaneGeometry(0.05, 0.05), new THREE.MeshBasicMaterial({ color: new THREE.Color(PALETTE.lamp), transparent: true, opacity: 1, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending }));
+  flash.add(flashA, flashB, flashCore);
   flash.position.set(0.24, -0.17, -0.95);
   flash.visible = false;
   camera.add(flash);
@@ -97,6 +107,8 @@ export function createWeapons(camera) {
     flash: 0,
     kick: 0,
     bloom: 0,
+    ads: false,
+    adsBlend: 0,
   };
 
   function showCurrent() {
@@ -107,7 +119,9 @@ export function createWeapons(camera) {
   function spread(moveSpeed) {
     const def = WEAPONS[state.current];
     const move = Math.min(1, moveSpeed / 5.4);
-    return def.spreadStill + (def.spreadMove - def.spreadStill) * move + state.bloom;
+    const base = def.spreadStill + (def.spreadMove - def.spreadStill) * move + state.bloom;
+    // Aiming down the sights is the reward for stopping: spread more than halves.
+    return base * (1 - 0.6 * state.adsBlend);
   }
 
   function step(dt) {
@@ -115,12 +129,19 @@ export function createWeapons(camera) {
     state.flash = Math.max(0, state.flash - dt);
     state.bloom = Math.max(0, state.bloom - dt * 0.05);
     state.kick += (0 - state.kick) * Math.min(1, dt * 14);
+    // Aim-down-sights: the view model glides to the centre and the flash follows it.
+    state.adsBlend += ((state.ads ? 1 : 0) - state.adsBlend) * Math.min(1, dt * 16);
+    const b = state.adsBlend;
     const model = models[state.current];
-    model.position.z = -0.42 + state.kick;
+    model.position.set(0.24 * (1 - b), -0.2 + 0.052 * b, -0.42 + state.kick + 0.04 * b);
     model.rotation.x = state.kick * 2.0;
+    flash.position.set(0.24 * (1 - b), -0.17 + 0.05 * b, -0.95);
+    flashLight.position.set(0.24 * (1 - b), -0.16 + 0.05 * b, -0.6);
     flash.visible = state.flash > 0;
     flash.rotation.z = state.flash * 28;
-    flashLight.intensity = state.flash > 0 ? 16 : 0;
+    const s = 1 + state.flash * 3;
+    flash.scale.set(s, s, 1);
+    flashLight.intensity = state.flash > 0 ? 22 : 0;
     if (state.reloadLeft > 0) {
       state.reloadLeft = Math.max(0, state.reloadLeft - dt);
       const def = WEAPONS[state.current];
@@ -178,8 +199,10 @@ export function createWeapons(camera) {
       state.owned.push(id);
       return true;
     },
+    setAds(on) { state.ads = !!on; },
     muzzleWorld(out) {
-      out.set(0.24, -0.17, -0.95);
+      const b = state.adsBlend;
+      out.set(0.24 * (1 - b), -0.17 + 0.05 * b, -0.95);
       return camera.localToWorld(out);
     },
   };

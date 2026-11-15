@@ -11,31 +11,59 @@ const BOT_HEIGHT = 1.7;
 const BOT_SPEED = 3.7;
 const SEE_DIST = 42;
 const HEAR_DIST = 26;
-const ENEMY_NAMES = ['Rook', 'Vex', 'Mara', 'Kite'];
-const ALLY_NAMES = ['Sable', 'Wren'];
+const ENEMY_NAMES = ['Rook', 'Vex', 'Mara', 'Kite', 'Havoc'];
+const ALLY_NAMES = ['Sable', 'Wren', 'Onyx', 'Pax'];
 
 function makeSoldier(scene, team) {
   const color = team === 'enemy' ? PALETTE.enemy : PALETTE.teal;
   const group = new THREE.Group();
   const torsoMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(color), roughness: 0.85 });
   const darkMat = new THREE.MeshStandardMaterial({ color: new THREE.Color(PALETTE.surface), roughness: 0.9 });
+  const glowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(team === 'enemy' ? PALETTE.sunset : PALETTE.lamp) });
   const torso = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.72, 0.3), torsoMat);
   torso.position.y = 1.06;
+  // Vest plate and backpack give the silhouette a tactical read at distance.
+  const vest = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.5, 0.1), darkMat);
+  vest.position.set(0, 1.08, -0.19);
+  const pack = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.52, 0.16), darkMat);
+  pack.position.set(0, 1.1, 0.22);
+  const belt = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.12, 0.32), darkMat);
+  belt.position.y = 0.66;
   const head = new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 10), darkMat);
   head.position.y = 1.62;
-  const visor = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.06, 0.05), new THREE.MeshStandardMaterial({ color: new THREE.Color(PALETTE.amber), roughness: 0.4 }));
+  const helmet = new THREE.Mesh(new THREE.SphereGeometry(0.185, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55), torsoMat);
+  helmet.position.y = 1.65;
+  const visor = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.07, 0.05), glowMat);
   visor.position.set(0, 1.63, -0.15);
   const legL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.68, 0.22), darkMat);
   legL.position.set(-0.14, 0.34, 0);
   const legR = legL.clone();
   legR.position.x = 0.14;
-  const gun = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.09, 0.55), darkMat);
-  gun.position.set(0.18, 1.15, -0.3);
-  for (const m of [torso, head, legL, legR, gun]) {
+  const bootL = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.1, 0.3), torsoMat);
+  bootL.position.set(-0.14, 0.05, -0.03);
+  const bootR = bootL.clone();
+  bootR.position.x = 0.14;
+  // Arms: a shoulder pair plus forearms reaching to the gun.
+  const armL = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.5, 0.15), torsoMat);
+  armL.position.set(-0.35, 1.12, -0.06);
+  armL.rotation.x = -0.7;
+  const armR = armL.clone();
+  armR.position.x = 0.35;
+  const padL = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.14, 0.2), torsoMat);
+  padL.position.set(-0.35, 1.38, 0);
+  const padR = padL.clone();
+  padR.position.x = 0.35;
+  const gun = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.09, 0.62), darkMat);
+  gun.position.set(0.18, 1.15, -0.34);
+  const gunMag = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.16, 0.09), darkMat);
+  gunMag.position.set(0.18, 1.02, -0.22);
+  const gunTip = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.045, 0.1), glowMat);
+  gunTip.position.set(0.18, 1.16, -0.68);
+  for (const m of [torso, vest, pack, belt, head, helmet, legL, legR, bootL, bootR, armL, armR, padL, padR, gun, gunMag]) {
     m.castShadow = true;
     group.add(m);
   }
-  group.add(visor);
+  group.add(visor, gunTip);
   scene.add(group);
   return { group, torso, head, gun };
 }
@@ -100,8 +128,8 @@ export function createBots(scene, map, hooks) {
     return bot;
   }
 
-  for (let i = 0; i < 4; i += 1) makeBot('enemy', i);
-  for (let i = 0; i < 2; i += 1) makeBot('ally', i);
+  for (let i = 0; i < 5; i += 1) makeBot('enemy', i);
+  for (let i = 0; i < 4; i += 1) makeBot('ally', i);
 
   function reset(now) {
     for (const bot of bots) {
@@ -124,7 +152,7 @@ export function createBots(scene, map, hooks) {
         bot.state = 'hold';
         bot.holdUntil = now + 6 + hooks.rng() * 6;
       } else {
-        const s = map.spawns.allies[bots.indexOf(bot) - 4];
+        const s = map.spawns.allies[bots.indexOf(bot) - 5];
         bot.pos.set(s[0], 0, s[1]);
         bot.yaw = 0;
         bot.node = 'mid1';
@@ -382,7 +410,11 @@ export function createBots(scene, map, hooks) {
     hearShot,
     kill,
     stepAll(dt, now) {
-      for (const bot of bots) step(bot, dt, now);
+      for (const bot of bots) {
+        step(bot, dt, now);
+        // A small walk bob sells the movement; dead bots keep their fall height.
+        if (bot.alive) bot.group.position.y = Math.abs(Math.sin(bot.walkPhase * 2)) * 0.035;
+      }
     },
     aliveCount(team) {
       let n = 0;

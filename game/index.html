@@ -58,11 +58,11 @@
   #health-fill { height: 100%; width: 100%; background: var(--teal); transition: width 120ms linear; }
   #health-fill.low { background: var(--enemy); }
 
-  #topbar { position: fixed; top: 18px; left: 50%; transform: translateX(-50%); text-align: center; font-family: var(--font-readout); }
+  #topbar { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); text-align: center; font-family: var(--font-readout); background: rgba(20, 22, 28, .62); border: 1px solid var(--hairline); border-radius: 8px; padding: 8px 22px 9px; backdrop-filter: blur(3px); }
   #timer { font-size: 26px; letter-spacing: .04em; }
   #timer.urgent { color: var(--enemy); }
   #score { font-size: 13px; color: var(--muted); letter-spacing: .08em; margin-top: 2px; }
-  #alive { position: fixed; top: 18px; left: 32px; font-family: var(--font-readout); font-size: 13px; line-height: 1.7; }
+  #alive { position: fixed; top: 18px; left: 32px; font-family: var(--font-readout); font-size: 13px; line-height: 1.7; background: rgba(20, 22, 28, .55); border-radius: 6px; padding: 6px 10px; }
   #alive-v { color: var(--teal); }
   #alive-j { color: var(--enemy); }
   #money { position: fixed; top: 18px; right: 32px; font-family: var(--font-readout); font-size: 18px; color: var(--amber); }
@@ -70,9 +70,19 @@
   #feed { position: fixed; top: 84px; right: 32px; text-align: right; font-size: 13px; color: var(--muted); }
   .feed-line { margin-bottom: 4px; text-shadow: 0 1px 2px #000; }
 
-  #banner { position: fixed; top: 22%; left: 50%; transform: translateX(-50%); max-width: 640px; text-align: center; }
+  #banner { position: fixed; top: 22%; left: 50%; transform: translateX(-50%); max-width: 680px; text-align: center; background: rgba(20, 22, 28, .55); border-top: 2px solid var(--amber); border-bottom: 2px solid var(--amber); padding: 10px 28px; }
   #banner.hidden { display: none; }
-  #banner-text { font-size: 26px; font-weight: 600; letter-spacing: .02em; text-shadow: 0 2px 8px #000; }
+  #banner-text { font-size: 25px; font-weight: 600; letter-spacing: .03em; text-shadow: 0 2px 8px #000; }
+
+  #scope { position: fixed; inset: 0; pointer-events: none; }
+  #scope.hidden { display: none; }
+  #scope .mask { position: absolute; inset: 0; background: radial-gradient(circle at 50% 50%, transparent 27%, rgba(5, 6, 8, .97) 28.5%); }
+  #scope .hline { position: absolute; left: 23%; right: 23%; top: 50%; height: 1px; background: rgba(236, 231, 219, .75); }
+  #scope .vline { position: absolute; top: 23%; bottom: 23%; left: 50%; width: 1px; background: rgba(236, 231, 219, .75); }
+  #scope .dot { position: absolute; left: 50%; top: 50%; width: 3px; height: 3px; margin: -1px 0 0 -1px; border-radius: 50%; background: var(--enemy); }
+  #scope .ring { position: absolute; left: 50%; top: 50%; width: 54vmin; height: 54vmin; transform: translate(-50%, -50%); border: 2px solid rgba(236, 231, 219, .35); border-radius: 50%; }
+
+  #grade { position: fixed; inset: 0; pointer-events: none; background: linear-gradient(180deg, rgba(255, 138, 61, .07) 0%, transparent 22%, transparent 82%, rgba(10, 10, 14, .28) 100%); }
 
   #hint { position: fixed; bottom: 96px; left: 50%; transform: translateX(-50%); font-size: 13px; letter-spacing: .1em; color: var(--muted); text-shadow: 0 1px 2px #000; }
 
@@ -114,6 +124,7 @@
 <div id="game"></div>
 
 <div id="hud" aria-hidden="true">
+  <div id="scope" class="hidden"><div class="mask"></div><div class="ring"></div><div class="hline"></div><div class="vline"></div><div class="dot"></div></div>
   <div id="crosshair"><i></i><i></i><i></i><i></i><b></b></div>
   <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
   <div id="ammo"><span id="ammo-mag">12</span><span id="ammo-reserve">/ 48</span><span id="weapon-name">P9 SIDEARM</span><span id="grenades">GRENADES 0</span></div>
@@ -126,6 +137,7 @@
   <div id="hint"></div>
   <div id="plant-bar" class="hidden"><div id="plant-label"></div><div id="plant-track"><div id="plant-fill"></div></div></div>
   <div id="vignette"></div>
+  <div id="grade"></div>
 </div>
 
 <div id="buy" class="hidden">
@@ -138,12 +150,13 @@
 <div id="overlay" class="overlay">
   <section class="panel" role="dialog" aria-modal="true" aria-labelledby="overlay-title">
     <h1 id="overlay-title">DUSTLINE YARD</h1>
-    <p id="overlay-copy">Round-based tactical FPS. Plant the spike at site A or B, or eliminate the Jackals. First to 5 rounds takes the yard.</p>
+    <p id="overlay-copy">5v5 round-based tactical FPS at golden hour. Plant the spike at site A or B, or eliminate the Jackals. First to 5 rounds takes the yard.</p>
     <button id="play" type="button">Deploy</button>
     <ul class="keys">
       <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move</li>
       <li><kbd>Mouse</kbd> Look</li>
       <li><kbd>Click</kbd> Fire</li>
+      <li><kbd>Right-click</kbd> Aim down sights (LS-7: scope)</li>
       <li><kbd>R</kbd> Reload</li>
       <li><kbd>1</kbd>–<kbd>4</kbd> Switch weapon</li>
       <li><kbd>G</kbd> Throw grenade</li>

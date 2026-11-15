@@ -4,7 +4,7 @@
 export function createInput(canvas, onLockChange) {
   const keys = new Set();
   const pressedQueue = new Set();
-  const state = { keys, locked: false, firing: false, lookX: 0, lookY: 0 };
+  const state = { keys, locked: false, firing: false, aiming: false, lookX: 0, lookY: 0 };
 
   function setKey(event, down) {
     if (down) {
@@ -24,15 +24,21 @@ export function createInput(canvas, onLockChange) {
   });
   window.addEventListener('mousedown', (event) => {
     if (state.locked && event.button === 0) state.firing = true;
+    if (state.locked && event.button === 2) state.aiming = true;
   });
   window.addEventListener('mouseup', (event) => {
     if (event.button === 0) state.firing = false;
+    if (event.button === 2) state.aiming = false;
+  });
+  window.addEventListener('contextmenu', (event) => {
+    if (state.locked) event.preventDefault();
   });
   document.addEventListener('pointerlockchange', () => {
     state.locked = document.pointerLockElement === canvas;
     if (!state.locked) {
       keys.clear();
       state.firing = false;
+      state.aiming = false;
     }
     onLockChange(state.locked);
   });
