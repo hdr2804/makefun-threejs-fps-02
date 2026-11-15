@@ -51,6 +51,7 @@
   #ammo.empty #ammo-mag { color: var(--amber); }
   #weapon-name { display: block; font-size: 13px; letter-spacing: .12em; color: var(--muted); margin-top: 4px; }
   #grenades { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+  #gear { display: block; font-size: 12px; color: var(--teal); margin-top: 2px; letter-spacing: .08em; }
 
   #health { position: fixed; left: 32px; bottom: 28px; width: 220px; }
   #health-num { font-family: var(--font-readout); font-size: 34px; line-height: 1; }
@@ -130,7 +131,7 @@
   <div id="scope" class="hidden"><div class="mask"></div><div class="ring"></div><div class="hline"></div><div class="vline"></div><div class="dot"></div></div>
   <div id="crosshair"><i></i><i></i><i></i><i></i><b></b></div>
   <div id="hitmarker"><i></i><i></i><i></i><i></i></div>
-  <div id="ammo"><span id="ammo-mag">12</span><span id="ammo-reserve">/ 48</span><span id="weapon-name">P9 SIDEARM</span><span id="grenades">GRENADES 0</span></div>
+  <div id="ammo"><span id="ammo-mag">12</span><span id="ammo-reserve">/ 48</span><span id="weapon-name">P9 SIDEARM</span><span id="grenades">GRENADES 0</span><span id="gear"></span></div>
   <div id="health"><span id="health-num">100</span><div id="health-bar"><div id="health-fill"></div></div></div>
   <div id="topbar"><div id="timer">0:10</div><div id="score">VANGUARD 0 — 0 JACKALS · ROUND 1</div></div>
   <div id="alive"><div id="alive-v">VANGUARD 3</div><div id="alive-j">JACKALS 4</div></div>
@@ -166,6 +167,7 @@
       <li><kbd>G</kbd> Frag grenade</li>
       <li><kbd>F</kbd> Flashbang</li>
       <li><kbd>T</kbd> Smoke grenade</li>
+      <li><kbd>V</kbd> Decoy device (fake gunfire)</li>
       <li><kbd>E</kbd> Plant the spike (hold, at a site)</li>
       <li><kbd>B</kbd> Buy menu (buy phase)</li>
       <li><kbd>Ctrl</kbd>/<kbd>C</kbd> Crouch</li>

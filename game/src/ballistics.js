@@ -20,6 +20,26 @@ export function damageFor(def, part, dist) {
   return def.damage * mult * fall;
 }
 
+// Penetration: a round that meets thin cover does not stop — it pays a
+// fraction of its damage to the material and flies on. The classes name the
+// cover and are priced here; map.js tags each surface with its class, and
+// thick geometry (silos, concrete, the ground itself) carries no class and
+// stops the round dead.
+export const PEN_MULT = { crate: 0.5, sheet: 0.45, barrel: 0.6 };
+export function penMult(cls) {
+  return PEN_MULT[cls] ?? 0;
+}
+
+// Armour, priced against a bullet hit: a vest blunts torso and limb hits to
+// 55%, and a helmet turns the headshot multiplier from four into 1.6.
+// gear is { vest, helmet } — a bot's loadout or the player's bought kit.
+export function damageVs(def, part, dist, gear) {
+  const dmg = damageFor(def, part, dist);
+  if (!gear) return dmg;
+  if (part === 'head') return gear.helmet ? (dmg / PART_MULT.head) * 1.6 : dmg;
+  return gear.vest ? dmg * 0.55 : dmg;
+}
+
 // ctx: { speed, airborne, crouching, adsBlend, bloom, firstShot }
 export function inaccuracy(def, ctx) {
   const move = Math.min(1, ctx.speed / 5.4);

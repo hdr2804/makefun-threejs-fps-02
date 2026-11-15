@@ -37,6 +37,19 @@ export function createMap(scene) {
   const colliders = [];
   const shootables = [];
 
+  // Penetration classes for ballistics.js, tagged on every surface a bullet
+  // can meet: wooden crates and sheet-metal containers let a round through
+  // at a price; concrete, the perimeter walls and the ground carry no class
+  // and stop it dead. A box is priced by its thinnest axis and its skin.
+  function boxPen(material, w, h, d) {
+    const thin = Math.min(w, h, d);
+    if (material === 'sand' || material === 'crateblue' || material === 'cratered') {
+      return thin <= 1.4 ? 'crate' : 'sheet';
+    }
+    if ((material === 'rust' || material === 'steel' || material === 'dark') && h <= 2.7 && thin <= 2.6) return 'sheet';
+    return null;
+  }
+
   function box(w, h, d, x, y, z, material, collide = true) {
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), materials[material] || materials.concrete);
     mesh.position.set(x, y, z);
@@ -46,6 +59,7 @@ export function createMap(scene) {
     if (collide) {
       colliders.push(new THREE.Box3().setFromObject(mesh));
       shootables.push(mesh);
+      mesh.userData.pen = boxPen(material, w, h, d);
     }
     return mesh;
   }
@@ -59,6 +73,8 @@ export function createMap(scene) {
     if (collide) {
       colliders.push(new THREE.Box3().setFromObject(mesh));
       shootables.push(mesh);
+      // Barrels and vent stacks are thin skins; the silos are not.
+      mesh.userData.pen = Math.max(rTop, rBot) <= 0.35 ? 'barrel' : null;
     }
     return mesh;
   }

@@ -4,7 +4,7 @@
 // owns the camera and the render loop, and stages the deterministic
 // screenshot scenes. The game itself lives in the modules: sim.js runs the
 // fixed-step simulation, teamplan.js runs the squads, ballistics.js prices
-// every shot. ?shot=action|planted|buy|scope with &seed=N sets up a
+// every shot. ?shot=action|wallbang|buy|scope with &seed=N sets up a
 // real game state for a capture, renders it twice, then freezes it and sets
 // window.__shotReady.
 import * as THREE from 'three';
@@ -70,6 +70,7 @@ const grenades = createGrenades(scene, map.colliders, {
   fragAt: (pos, thrower) => sim.fragAt(pos, thrower),
   flashAt: (pos) => sim.flashAt(pos),
   smokeAt: (pos) => sim.smokeAt(pos),
+  decoyShot: (pos, team) => sim.decoyShot(pos, team),
 });
 
 const bots = createBots(scene, map, {
@@ -77,7 +78,7 @@ const bots = createBots(scene, map, {
   now: () => state.now,
   playerState: () => body,
   playerSpeed: () => player.groundSpeed(),
-  damagePlayer: (dmg, bot) => sim.damagePlayer(dmg, bot),
+  damagePlayer: (dmg, bot, head) => sim.damagePlayer(dmg, bot, head),
   damageBot: (target, dmg, fromBot) => sim.damageBot(target, dmg, fromBot),
   tracer: (from, to) => fx.tracer(from, to),
   botShot: (bot) => {
@@ -100,9 +101,9 @@ const bots = createBots(scene, map, {
     }
     return best;
   },
-  defuseTick: (progress) => hud.setPlant(progress / 4, 'JACKAL DEFUSING THE SPIKE'),
+  defuseTick: (progress, total) => hud.setPlant(progress / total, 'JACKAL DEFUSING THE SPIKE'),
   bombDefused: (bot) => {
-    hud.killFeed(bot.name + ' defused the spike');
+    hud.killFeed(bot.name, 'the spike', bot.kit ? 'Defuse Kit' : 'Defuse', '');
     sim.rounds.defused();
   },
   losBlocked: (a, b) => sim.losBlocked(a, b),
@@ -221,20 +222,33 @@ const fxTo = new THREE.Vector3();
 
 function stageAction(rounds) {
   // THE COVER: an Execute A in motion. Sable leads, Wren's flash is in the
-  // air over the choke, the player has just dropped Rook mid-cross.
+  // air over the choke, the player has just dropped Rook mid-cross. The
+  // squads' money is real: three Vanguard wins are settled through the
+  // team economy first, so round 4 is a genuine full buy — rifles, armour
+  // and the callout that names it — and Rook wears the vest and helmet his
+  // own buy bought him, which is why he needs the headshot to fall.
+  teamplan.onRoundResult(true);
+  teamplan.onRoundResult(true);
+  teamplan.onRoundResult(true);
+  teamplan.startRound(4);
   rounds.state.phase = 'live';
   rounds.state.phaseLeft = 67;
-  rounds.state.wins = 2;
-  rounds.state.losses = 1;
+  rounds.state.wins = 3;
+  rounds.state.losses = 0;
   rounds.state.round = 4;
   rounds.state.money = 1150;
+  rounds.state.gear.vest = true;
+  rounds.state.gear.helmet = true;
+  hud.setGear(true, true);
   weapons.buy('vk47');
   weapons.switchTo('vk47');
   weapons.state.cooldown = 0;
   grenades.counts.frag = 1;
   grenades.counts.flash = 1;
+  grenades.counts.decoy = 1;
   player.reset(-7.5, 0.5);
   const rook = bots.bots[0];
+  rook.hp = 55; // already traded damage this round; armour ate the rest
   placeBot(rook, -13.5, -6.8, body.position.x, body.position.z);
   const vex = bots.bots[1];
   placeBot(vex, -17.5, -10.5, body.position.x, body.position.z);
@@ -262,59 +276,70 @@ function stageAction(rounds) {
   aimAt(aimTmp.set(vex.pos.x, 1.4, vex.pos.z));
 }
 
-function stagePlanted(rounds) {
-  // THE DEFENCE: post-plant at A. The retake smokes the cross, Mara is on
-  // the defuse, the player covers the ring from the east angle.
-  rounds.state.phase = 'planted';
-  rounds.state.phaseLeft = 18;
-  rounds.state.bombSite = 'A';
-  rounds.state.bombPos = { x: map.siteA.x, z: map.siteA.z };
+function stageWallbang(rounds) {
+  // THE WALLBANG: Pax's decoy is singing on the east side of site A and
+  // Mara has turned her back to answer it. Havoc holds behind the lone
+  // crate — and a crate is only half cover now: the player's round pays
+  // the wood its fraction and kills him through it, feed line and all.
+  rounds.state.phase = 'live';
+  rounds.state.phaseLeft = 63;
   rounds.state.wins = 3;
-  rounds.state.losses = 2;
-  rounds.state.round = 6;
-  rounds.state.money = 1750;
+  rounds.state.losses = 1;
+  rounds.state.round = 5;
+  rounds.state.money = 640;
+  rounds.state.gear.vest = true;
+  hud.setGear(true, false);
   weapons.buy('vk47');
   weapons.switchTo('vk47');
-  grenades.counts.frag = 1;
-  weapons.ammo.vk47.mag = 18;
-  player.reset(-11.4, -3.2);
-  sim.showBomb(map.siteA.x, map.siteA.z);
+  weapons.state.cooldown = 0;
+  grenades.counts.decoy = 1;
+  // Park the player inside the south wall while the decoy flies: the bots
+  // play the settle for real, and an A defender's burst is not wanted yet.
+  player.reset(24, -16);
+  const pax = bots.bots[8];
+  placeBot(pax, -12.6, -6.2, -7.9, -9.3);
+  // The decoy flies for real and arms; its song is what turns Mara.
+  throwOrigin.set(pax.pos.x, 1.45, pax.pos.z);
+  grenades.throwAt(throwOrigin, -7.9, -9.3, 'decoy', 'ally', pax);
+  settle(130);
+  // Seat the cast after the settle: the fight is real, the capture framed.
+  player.reset(-13.8, -7.6);
+  placeBot(bots.bots[5], -15.9, -5.4, -9.9, -11.4);
+  placeBot(bots.bots[6], -16.4, -9.8, -9.9, -11.4);
+  placeBot(bots.bots[7], -12.2, -4.6, -9.9, -11.4);
+  placeBot(bots.bots[0], 16.5, 12.5, -7.9, -9.3);
+  placeBot(bots.bots[1], 18.5, 10.5, -7.9, -9.3);
+  placeBot(bots.bots[3], 15.0, 14.5, -7.9, -9.3);
   const mara = bots.bots[2];
-  placeBot(mara, map.siteA.x + 1.1, map.siteA.z + 0.9, map.siteA.x, map.siteA.z);
-  placeBot(bots.bots[1], -11.8, -9.8, map.siteA.x, map.siteA.z);
-  placeBot(bots.bots[4], -19.2, -8.6, body.position.x, body.position.z);
-  placeBot(bots.bots[5], -19.9, -8.2, -12.5, -8.0);
-  placeBot(bots.bots[7], -10.6, -2.4, -19.2, -8.6);
-  bots.kill(bots.bots[3]);
-  teamplan.onPlant('A');
-  // Vex (retake support) smokes the A cross, exactly as her directive orders.
-  throwOrigin.set(bots.bots[1].pos.x, 1.45, bots.bots[1].pos.z);
-  grenades.throwAt(throwOrigin, -13.8, -8.2, 'smoke', 'enemy', bots.bots[1]);
-  // Let the retake's smoke bloom and the defuse begin, then re-seat Mara:
-  // the fight around her is real, and the capture wants her on the spike.
-  settle(95);
-  placeBot(mara, map.siteA.x + 1.1, map.siteA.z + 0.9, map.siteA.x, map.siteA.z);
-  mara.alive = true;
-  mara.hp = 100;
-  mara.group.rotation.set(0, mara.yaw, 0);
-  fx.tracer(fxFrom.set(-10.6, 1.35, -2.4), fxTo.set(-19.2 + 0.8, 1.2, -8.6));
-  fx.spark(fxTo, 2);
-  hud.banner('SPIKE PLANTED AT SITE A — DEFEND IT', 3000);
-  hud.killFeed('Pax eliminated Kite');
-  hud.setPlant(0.55, 'JACKAL DEFUSING THE SPIKE');
-  body.hp = 64;
-  aimAt(aimTmp.set(mara.pos.x, 1.3, mara.pos.z));
+  placeBot(mara, -6.6, -12.8, -7.9, -9.3); // back turned: answering the decoy
+  const havoc = bots.bots[4];
+  havoc.hp = 12; // already tagged this round — one punched-through hit ends it
+  placeBot(havoc, -9.9, -11.4, body.position.x, body.position.z);
+  hud.radio('Pax', 'Decoy out — faking the cross!');
+  sim.decoyShot(fxFrom.set(-7.9, 0.35, -9.3), 'ally');
+  aimAt(aimTmp.set(havoc.pos.x, 0.95, havoc.pos.z));
+  sim.shootNow(0);
+  hud.hitMarker(true, 4000);
+  body.hp = 88;
+  settle(2);
+  aimAt(aimTmp.set(havoc.pos.x, 0.95, havoc.pos.z));
 }
 
 function stageBuy(rounds) {
-  // THE BUY: round 4, a healthy bank, the carbine owned, full utility held.
+  // THE BUY: round 4, a healthy bank, the carbine owned, the vest already
+  // worn from the round before, all four utility types in the bag — and
+  // the enemy's defuse kit listed as the intel it is.
   rounds.state.wins = 2;
   rounds.state.losses = 1;
   rounds.state.round = 4;
   weapons.buy('vk47');
+  rounds.state.gear.vest = true;
+  hud.setGear(true, false);
   grenades.counts.frag = 1;
   grenades.counts.flash = 1;
-  rounds.state.money = 1500;
+  grenades.counts.smoke = 1;
+  grenades.counts.decoy = 1;
+  rounds.state.money = 2400;
   player.reset(map.spawns.player[0], map.spawns.player[1]);
   settle(20);
   aimAt(aimTmp.set(0, 1.5, -10));
@@ -334,6 +359,7 @@ function stageScope(rounds) {
   weapons.switchTo('ls7');
   weapons.ammo.ls7.mag = 4;
   grenades.counts.frag = 1;
+  grenades.counts.decoy = 1;
   player.reset(2.5, 11.5);
   const havoc = bots.bots[4];
   placeBot(havoc, -0.5, -8.0, body.position.x, body.position.z);
@@ -349,7 +375,7 @@ function stageScope(rounds) {
   fovNow = 30;
   camera.updateProjectionMatrix();
   hud.setScope(true);
-  hud.killFeed('Pax eliminated Rook');
+  hud.killFeed('Pax', 'Rook', 'VK-47 Carbine', 'HEADSHOT');
 }
 
 function runShot(name) {
@@ -361,7 +387,7 @@ function runShot(name) {
   body.pitch = 0;
   body.yaw = 0;
   const rounds = sim.rounds;
-  if (name === 'planted') stagePlanted(rounds);
+  if (name === 'wallbang') stageWallbang(rounds);
   else if (name === 'buy') stageBuy(rounds);
   else if (name === 'scope') stageScope(rounds);
   else stageAction(rounds);

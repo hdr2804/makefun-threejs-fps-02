@@ -7,7 +7,21 @@
 // contacts become radio callouts and rotations, a death becomes a trade, a
 // plant becomes post-plant angles for one team and a paired retake for the
 // other. Callouts are only ever written here, and only from real events.
+//
+// The same layer runs each squad's money: a bank and a loss streak per
+// team, spent like a Counter-Strike side — full buy (rifles, armour,
+// utility), force buy (scatterguns, vests) or eco (pistols, one decoy).
+// The buy writes every bot's weapon, armour, kit and utility counts for
+// the round, and the callout names it, so a pistol round plays like one.
+import { UTILITY } from './grenades.js';
+
 const ATTACK_PLANS = ['EXECUTE_A', 'EXECUTE_B', 'DEFAULT'];
+const GEAR_COST = { vk47: 900, sc12: 700, vest: 500, helmet: 350, kit: 400 };
+const BUY_LINES = {
+  full: 'Full buy — rifles and armour.',
+  force: 'Force buy — scatterguns and vests.',
+  eco: 'Eco round — save for next.',
+};
 const ALLY_ROLES = ['entry', 'support', 'entry', 'lurker'];
 const ENEMY_ROLES = ['anchor', 'anchor', 'anchor', 'anchor', 'rotate'];
 
@@ -43,9 +57,76 @@ export function createTeamPlan({ map, bots, radio, now }) {
   let rotatedTo = null;
   let plantHeard = false;
   const contacts = { ally: null, enemy: null };
+  const eco = {
+    ally: { bank: 4000, streak: 0 },
+    enemy: { bank: 4000, streak: 0 },
+  };
+  const buyTypes = { ally: 'eco', enemy: 'eco' };
 
   function teamBots(team) {
     return bots.bots.filter((b) => b.team === team);
+  }
+
+  // What one bot carries into the round, by buy type and job. Utility is
+  // dealt to the roles that throw it: the support flashes and smokes, the
+  // lurker fakes the far site with the decoy, two defenders carry the
+  // defuse kits that halve their defuse time.
+  function loadoutFor(team, type, bot, i) {
+    const load = { weaponId: 'p9', vest: false, helmet: false, kit: false, util: { frag: 0, flash: 0, smoke: 0, decoy: 0 } };
+    if (type !== 'eco') {
+      load.weaponId = type === 'full' ? 'vk47' : (i < 2 ? 'sc12' : 'p9');
+      load.vest = type === 'full' || i < 2;
+      load.helmet = type === 'full';
+    }
+    if (team === 'ally') {
+      if (bot.role === 'lurker') load.util.decoy = 1;
+      if (type === 'full' && bot.role === 'support') { load.util.flash = 1; load.util.smoke = 1; }
+      if (type === 'full' && bot.role === 'entry' && i === 2) load.util.frag = 1;
+      if (type === 'force' && bot.role === 'support') load.util.flash = 1;
+    } else {
+      if (type !== 'eco' && i < 2) load.kit = true;
+      if (type === 'full' && i === 0) load.util.frag = 1;
+      if (type !== 'eco' && i === 1) load.util.smoke = 1;
+      if (type === 'full' && i === 2) load.util.flash = 1;
+      if (type === 'full' && bot.role === 'rotate') load.util.smoke = 1;
+    }
+    return load;
+  }
+
+  function applyBuy(team) {
+    const e = eco[team];
+    const list = teamBots(team);
+    const type = e.bank >= list.length * 2050 ? 'full' : e.bank >= list.length * 1100 ? 'force' : 'eco';
+    buyTypes[team] = type;
+    let spent = 0;
+    list.forEach((bot, i) => {
+      const load = loadoutFor(team, type, bot, i);
+      bot.weaponId = load.weaponId;
+      bot.gear.vest = load.vest;
+      bot.gear.helmet = load.helmet;
+      bot.kit = load.kit;
+      bot.util = load.util;
+      spent += (GEAR_COST[load.weaponId] || 0) + (load.vest ? GEAR_COST.vest : 0)
+        + (load.helmet ? GEAR_COST.helmet : 0) + (load.kit ? GEAR_COST.kit : 0);
+      for (const t of Object.keys(load.util)) spent += load.util[t] * UTILITY[t].price;
+    });
+    e.bank -= spent;
+  }
+
+  // Round income: a win pays flat, a loss pays the growing loss bonus, so
+  // a beaten team forces once, then has to eco — the streak resets on a win.
+  function onRoundResult(allyWon) {
+    for (const team of ['ally', 'enemy']) {
+      const e = eco[team];
+      const won = team === 'ally' ? allyWon : !allyWon;
+      if (won) {
+        e.bank += 6800;
+        e.streak = 0;
+      } else {
+        e.streak += 1;
+        e.bank += 4600 + Math.min(1800, (e.streak - 1) * 600);
+      }
+    }
   }
 
   function setDirective(bot, kind, x, z, extra = {}) {
@@ -65,6 +146,8 @@ export function createTeamPlan({ map, bots, radio, now }) {
     const enemies = teamBots('enemy');
     allies.forEach((bot, i) => { bot.role = ALLY_ROLES[i]; bot.utilUsed = false; });
     enemies.forEach((bot, i) => { bot.role = ENEMY_ROLES[i]; bot.utilUsed = false; });
+    applyBuy('ally');
+    applyBuy('enemy');
 
     // Defence: anchors take their named angles, the fifth man holds mid.
     enemies.forEach((bot, i) => {
@@ -77,24 +160,29 @@ export function createTeamPlan({ map, bots, radio, now }) {
       }
     });
 
-    // Attack: the plan names the site; the lurker always works the far side.
+    // Attack: the plan names the site; the lurker always works the far side
+    // and fakes it with the decoy, so the defence has to honour both ends.
     const site = plan === 'EXECUTE_B' ? 'B' : 'A';
+    const farSite = site === 'A' ? 'B' : 'A';
     const far = site === 'A' ? map.siteB : map.siteA;
     const choke = CHOKE[site];
+    const farChoke = CHOKE[farSite];
     const target = site === 'A' ? map.siteA : map.siteB;
     allies.forEach((bot) => {
       if (plan === 'DEFAULT') {
         if (bot.role === 'entry' && bot === allies[0]) setDirective(bot, 'hold', -10, -2, { faceX: -6, faceZ: -12 });
         else if (bot.role === 'support') setDirective(bot, 'follow', 0, 0, { follow: allies[0] });
         else if (bot.role === 'entry') setDirective(bot, 'hold', 10, -2, { faceX: 6, faceZ: -12 });
-        else setDirective(bot, 'goto', 0, -9, { speed: 0.7 });
+        else setDirective(bot, 'goto', 6, 2, { speed: 0.7, site: farSite,
+          utility: 'decoy', utilityX: farChoke.x, utilityZ: farChoke.z });
       } else if (bot.role === 'entry') {
         setDirective(bot, 'goto', target.x, target.z, { site });
       } else if (bot.role === 'support') {
         setDirective(bot, 'follow', 0, 0, { follow: allies[0], site,
           utility: 'flash', utilityX: choke.x, utilityZ: choke.z });
       } else {
-        setDirective(bot, 'goto', far.x, far.z, { speed: 0.7, site: site === 'A' ? 'B' : 'A' });
+        setDirective(bot, 'goto', far.x, far.z, { speed: 0.7, site: farSite,
+          utility: 'decoy', utilityX: farChoke.x, utilityZ: farChoke.z });
       }
     });
     return plan;
@@ -106,6 +194,7 @@ export function createTeamPlan({ map, bots, radio, now }) {
     if (allies.length) {
       radio(allies[0].name, plan === 'DEFAULT' ? 'Default — play for picks.' : 'Execute ' + plan.slice(-1) + ' — on my go.', 'ally');
     }
+    if (allies.length > 1) radio(allies[1].name, BUY_LINES[buyTypes.ally], 'ally');
     if (enemies.length) radio(enemies[0].name, 'Hold your angles.', 'enemy');
   }
 
@@ -200,6 +289,8 @@ export function createTeamPlan({ map, bots, radio, now }) {
     onDeath,
     onPlant,
     onPlantHeard,
+    onRoundResult,
     planName() { return plan; },
+    buyName(team) { return buyTypes[team]; },
   };
 }

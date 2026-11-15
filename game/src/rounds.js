@@ -15,6 +15,17 @@ export const PLANT_SECONDS = 3;
 export const WIN_ROUNDS = 5;
 export const MAX_ROUNDS = 9;
 
+// The armour the buy menu sells beside the guns. Ballistics prices both
+// into every bullet: the vest blunts body hits, the helmet blunts the
+// headshot multiplier. The third piece of kit — the defuse kit that halves
+// a defuse — is Jackal issue: the defending bots buy it through their own
+// team economy in teamplan.js, and the buy menu carries it as an intel row.
+export const GEAR = {
+  vest: { id: 'vest', name: 'Kevlar Vest', price: 500, stat: 'Body damage ×0.55' },
+  helmet: { id: 'helmet', name: 'Helmet', price: 350, stat: 'Headshots blunted' },
+};
+export const GEAR_ORDER = ['vest', 'helmet'];
+
 export function createRounds(events) {
   const state = {
     phase: 'buy', // buy | live | planted | ended | match
@@ -22,6 +33,7 @@ export function createRounds(events) {
     wins: 0, // Vanguard (player team) rounds
     losses: 0,
     money: 800,
+    gear: { vest: false, helmet: false }, // bought armour; lost on death
     kills: 0,
     deaths: 0,
     plants: 0,
@@ -136,11 +148,21 @@ export function createRounds(events) {
     return true;
   }
 
+  function buyGear(id) {
+    const def = GEAR[id];
+    if (!def || state.gear[id] || state.money < def.price) return false;
+    state.money -= def.price;
+    state.gear[id] = true;
+    return true;
+  }
+
   function resetMatch() {
     state.round = 1;
     state.wins = 0;
     state.losses = 0;
     state.money = 800;
+    state.gear.vest = false;
+    state.gear.helmet = false;
     state.kills = 0;
     state.deaths = 0;
     state.plants = 0;
@@ -159,7 +181,13 @@ export function createRounds(events) {
     defused,
     buyWeapon,
     buyUtility,
+    buyGear,
     resetMatch,
+    gearList() {
+      return GEAR_ORDER.map((id) => ({
+        id, name: GEAR[id].name, price: GEAR[id].price, stat: GEAR[id].stat,
+      }));
+    },
     buyList() {
       return WEAPON_ORDER.map((id) => ({
         id,

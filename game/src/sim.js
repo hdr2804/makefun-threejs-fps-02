@@ -8,7 +8,8 @@ import * as THREE from 'three';
 import { PALETTE } from './palette.js';
 import { createRounds, BUY_SECONDS, PLANT_SECONDS, DEFUSE_SECONDS } from './rounds.js';
 import { UTILITY, UTILITY_ORDER } from './grenades.js';
-import { damageFor } from './ballistics.js';
+import { damageVs, penMult } from './ballistics.js';
+import { WEAPONS } from './weapons.js';
 
 export const FIXED_STEP = 1 / 60;
 
@@ -34,6 +35,7 @@ export function createSim(deps) {
       weapons.refillAmmo();
       hideBomb();
       hud.setScore(rounds.state.wins, rounds.state.losses, round);
+      hud.setGear(rounds.state.gear.vest, rounds.state.gear.helmet);
       hud.banner('ROUND ' + round + ' — BUY PHASE', 2000);
       if (!staging) buildBuyMenu();
     },
@@ -44,7 +46,9 @@ export function createSim(deps) {
     },
     onRoundEnd(won, reason, wins, losses) {
       hud.setScore(wins, losses, rounds.state.round);
-      hud.banner((won ? 'ROUND WON — ' : 'ROUND LOST — ') + reason, 3400);
+      teamplan.onRoundResult(won);
+      const planLabel = { EXECUTE_A: 'Execute A', EXECUTE_B: 'Execute B', DEFAULT: 'The default' }[teamplan.planName()];
+      hud.banner((won ? 'ROUND WON — ' : 'ROUND LOST — ') + (won ? planLabel + ' succeeds · ' : planLabel + ' is stopped · ') + reason, 3400);
       if (won) audio.win(); else audio.lose();
       if (body.alive === false) {
         if (document.pointerLockElement) document.exitPointerLock();
@@ -100,7 +104,17 @@ export function createSim(deps) {
   }
 
   function buildBuyMenu() {
-    hud.buildBuyMenu(rounds.buyList(), weapons.state.owned, rounds.state.money, buyWeapon, grenades.counts, buyUtility, UTILITY);
+    hud.buildBuyMenu(rounds.buyList(), weapons.state.owned, rounds.state.money, buyWeapon, grenades.counts, buyUtility, UTILITY,
+      rounds.state.gear, rounds.gearList(), buyGear);
+  }
+
+  function buyGear(id) {
+    if (rounds.state.phase !== 'buy') return;
+    if (!rounds.buyGear(id)) return;
+    audio.buy();
+    buildBuyMenu();
+    hud.setMoney(rounds.state.money);
+    hud.setGear(rounds.state.gear.vest, rounds.state.gear.helmet);
   }
 
   function buyWeapon(id) {
@@ -122,14 +136,16 @@ export function createSim(deps) {
   }
 
   // One death, every cause: money, feed, the plan's trade, the round check.
-  function killBot(bot, killerName, killerPos, byPlayer, note) {
+  // The feed line names the weapon and the manner — HEADSHOT, WALLBANG —
+  // because the feed is how a round tells its story at a glance.
+  function killBot(bot, killerName, killerPos, byPlayer, note, weapon) {
     bots.kill(bot);
     if (byPlayer && bot.team === 'enemy') {
       rounds.onKill(true);
-      hud.killFeed('You eliminated ' + bot.name + (note ? ' — ' + note : ''));
+      hud.killFeed('You', bot.name, weapon, note);
       audio.kill();
     } else {
-      hud.killFeed(killerName + ' eliminated ' + bot.name + (note ? ' — ' + note : ''));
+      hud.killFeed(killerName, bot.name, weapon, note);
     }
     teamplan.onDeath(bot, killerPos.x, killerPos.z);
     if (bot.team === 'enemy' && bots.aliveCount('enemy') === 0
@@ -138,10 +154,15 @@ export function createSim(deps) {
     }
   }
 
-  function damagePlayer(dmg, bot) {
+  function damagePlayer(dmg, bot, head) {
     if (!body.alive) return;
     if (rounds.state.phase !== 'live' && rounds.state.phase !== 'planted') return;
-    body.hp -= dmg;
+    // Armour prices a bot's hit as it prices the player's rounds: a helmet
+    // blunts the high shot, a vest eats body shots. Death drops the kit.
+    let taken = dmg;
+    if (head) taken *= rounds.state.gear.helmet ? 1.15 : 1.75;
+    else if (rounds.state.gear.vest) taken *= 0.55;
+    body.hp -= taken;
     hud.damageFlash();
     audio.hurt();
     state.trauma = Math.min(1, state.trauma + 0.25);
@@ -149,17 +170,20 @@ export function createSim(deps) {
       body.hp = 0;
       body.alive = false;
       rounds.state.deaths += 1;
-      hud.killFeed(bot.name + ' eliminated you');
+      rounds.state.gear.vest = false;
+      rounds.state.gear.helmet = false;
+      hud.setGear(false, false);
+      hud.killFeed(bot.name, 'you', WEAPONS[bot.weaponId].name, head ? 'HEADSHOT' : '');
       rounds.endRound(false, 'You were eliminated.');
     }
   }
 
   function damageBot(target, dmg, fromBot) {
     if (!target.alive) return;
-    target.hp -= dmg;
+    target.hp -= target.gear.vest ? dmg * 0.55 : dmg;
     if (target.hp <= 0) {
       target.hp = 0;
-      killBot(target, fromBot.name, fromBot.pos, false, '');
+      killBot(target, fromBot.name, fromBot.pos, false, '', WEAPONS[fromBot.weaponId].name);
     }
   }
 
@@ -186,27 +210,50 @@ export function createSim(deps) {
       tmpV.normalize();
       scene.updateMatrixWorld(true);
       raycaster.set(camera.position, tmpV);
-      // Two raycasts, no allocation: the nearer of the wall hit and the bot hit wins.
-      const wallHit = raycaster.intersectObjects(map.shootables, false)[0];
-      const botHit = raycaster.intersectObjects(bots.hitMeshes(), false)[0];
-      const hit = !wallHit ? botHit : !botHit ? wallHit : wallHit.distance < botHit.distance ? wallHit : botHit;
+      // Full hit lists: penetration needs the second surface and the bot
+      // standing behind the first, not just the nearest of each.
+      const wallHits = raycaster.intersectObjects(map.shootables, false);
+      const botHits = raycaster.intersectObjects(bots.hitMeshes(), false);
+      const w1 = wallHits[0];
+      const b1 = botHits[0];
+      let hit = null;
+      let mult = 1;
+      let wallbang = false;
+      let entry = null;
+      if (b1 && (!w1 || b1.distance < w1.distance)) hit = b1;
+      else if (w1) {
+        const m = penMult(w1.object.userData.pen);
+        if (m > 0) {
+          // Thin cover: the round pays the material its fraction and flies
+          // on to whatever stands behind it — a bot, a second wall, or air.
+          entry = w1;
+          const b2 = botHits.find((h) => h.distance > w1.distance + 0.05);
+          const w2 = wallHits.find((h) => h.distance > w1.distance + 0.05);
+          if (b2 && (!w2 || b2.distance < w2.distance)) { hit = b2; mult = m; wallbang = true; }
+          else if (w2) hit = w2;
+        } else hit = w1;
+      }
       if (!hit) {
         hitPoint.copy(camera.position).addScaledVector(tmpV, def.range);
-        fx.tracer(muzzle, hitPoint);
+        if (entry) { fx.tracer(muzzle, entry.point); fx.spark(entry.point, 2); fx.tracer(entry.point, hitPoint); }
+        else fx.tracer(muzzle, hitPoint);
         continue;
       }
       hitPoint.copy(hit.point);
-      fx.tracer(muzzle, hitPoint);
+      if (entry) { fx.tracer(muzzle, entry.point); fx.spark(entry.point, 2); fx.tracer(entry.point, hitPoint); }
+      else fx.tracer(muzzle, hitPoint);
       if (hit.object.userData.bot) {
         const bot = hit.object.userData.bot;
         const part = hit.object.userData.part;
-        const dmg = damageFor(def, part, hit.distance);
+        const dmg = damageVs(def, part, hit.distance, bot.gear) * mult;
         bot.hp -= dmg;
         hitSomething = true;
         hud.hitMarker(bot.hp <= 0, bot.hp <= 0 ? 4000 : 90);
         if (bot.hp <= 0) {
           bot.hp = 0;
-          killBot(bot, 'You', body.position, true, part === 'head' ? 'HEADSHOT' : '');
+          const note = part === 'head' ? (wallbang ? 'HEADSHOT · WALLBANG' : 'HEADSHOT')
+            : (wallbang ? 'WALLBANG' : '');
+          killBot(bot, 'You', body.position, true, note, def.name);
         } else {
           audio.hit();
           bot.lastSeen.copy(body.position);
@@ -260,7 +307,7 @@ export function createSim(deps) {
       bot.hp -= Math.round(100 * (1 - d / 8));
       if (bot.hp <= 0) {
         bot.hp = 0;
-        killBot(bot, killerName, killerPos, byPlayer, '');
+        killBot(bot, killerName, killerPos, byPlayer, '', UTILITY.frag.name);
       }
     }
   }
@@ -291,6 +338,15 @@ export function createSim(deps) {
   function smokeAt(pos) {
     fx.smoke(pos.x, pos.z);
     audio.puff();
+  }
+
+  // A decoy sings: the fake shot goes on the hearing bus at full rifle
+  // radius, a spark sells the muzzle flash, and a nearby player hears the
+  // crack — while the other team rotates toward a fight that is not there.
+  function decoyShot(pos, team) {
+    hearing.publish('shot', pos.x, pos.z, team, 26, state.now);
+    fx.spark(pos, 1);
+    if (Math.hypot(pos.x - body.position.x, pos.z - body.position.z) < 30) audio.distantShot();
   }
 
   // Does the segment a→b pass through a live smoke cloud?
@@ -343,6 +399,7 @@ export function createSim(deps) {
         if (input.pressed('KeyG')) throwUtilityPlayer('frag');
         if (input.pressed('KeyF')) throwUtilityPlayer('flash');
         if (input.pressed('KeyT')) throwUtilityPlayer('smoke');
+        if (input.pressed('KeyV')) throwUtilityPlayer('decoy');
       }
       if (input.pressed('KeyB') && phase === 'buy') {
         rounds.state.buyOpen = true;
@@ -439,10 +496,12 @@ export function createSim(deps) {
     buildBuyMenu,
     buyWeapon,
     buyUtility,
+    buyGear,
     resetPositions,
     fragAt,
     flashAt,
     smokeAt,
+    decoyShot,
     losBlocked,
     damagePlayer,
     damageBot,

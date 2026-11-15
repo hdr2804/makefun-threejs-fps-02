@@ -1,6 +1,6 @@
 [
   {"name": "1-action.jpg", "query": "?shot=action&seed=1"},
-  {"name": "2-planted.jpg", "query": "?shot=planted&seed=1"},
+  {"name": "2-wallbang.jpg", "query": "?shot=wallbang&seed=1"},
   {"name": "3-buy.jpg", "query": "?shot=buy&seed=1"},
   {"name": "4-scope.jpg", "query": "?shot=scope&seed=1"}
 ]

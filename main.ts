@@ -6,7 +6,8 @@
 //      MAKEFUN_OUTPUT_DIR when run by hand: `MAKEFUN_OUTPUT_DIR=out node main.ts`)
 //   2. validates the hand-in against the gate's caps before copying anything:
 //      every screenshot within its byte cap, the game tree within its file
-//      and byte caps — a violation fails here, with the file named
+//      and byte caps, and the source text within the dossier's text cap —
+//      a violation fails here, with the file named
 //   3. copies the playable game (game/, static ES modules + vendored three.js
 //      0.187.0) and the maker's screenshots (screenshots/, 4 JPEG renders) there
 //   4. writes dossier.json with the vendored buildDossier library — the exact
@@ -91,6 +92,45 @@ function assertGameTreeWithinCaps(dir) {
   return census;
 }
 
+// The dossier's text is the "## Game" block plus every source the judge
+// reads — index.html and the JS modules — each under a header line in a
+// fence. buildDossier does not fail when the text outgrows its cap; it
+// CUTS the first source that no longer fits, and a cut module reads as a
+// broken one. So the hand-in checks the text itself here: an upper-bound
+// estimate (every source file's bytes, a header-and-fence allowance per
+// file, a block allowance on top) that must stay under the cap, or the
+// build fails while there is still time to trim a comment instead of
+// losing a module at grading.
+const SOURCE_TEXT_EXT = /\.(html|mjs|js|css)$/i;
+
+function sourceTextEstimate(dir) {
+  let bytes = 1024; // the "## Game" block and section furniture
+  const stack = [dir];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const path = join(current, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name !== 'vendor') stack.push(path);
+      } else if (entry.isFile() && SOURCE_TEXT_EXT.test(entry.name) && !entry.name.includes('.min.')) {
+        bytes += statSync(path).size + 64; // header line + fences + spacing
+      }
+    }
+  }
+  return bytes;
+}
+
+function assertSourceTextWithinCap(dir) {
+  const estimate = sourceTextEstimate(dir);
+  if (estimate > GATE.textMaxBytes) {
+    throw new Error(
+      `game source text estimates ${estimate} bytes, over the ${GATE.textMaxBytes}-byte cap: `
+      + 'the dossier would cut a module — trim source before handing in',
+    );
+  }
+  return estimate;
+}
+
 function main() {
   const gameFrom = join(repoRoot, 'game');
   const shotsFrom = join(repoRoot, 'screenshots');
@@ -103,6 +143,7 @@ function main() {
   }
   assertScreenshotSizes(shotsFrom, shots);
   const census = assertGameTreeWithinCaps(gameFrom);
+  const textEstimate = assertSourceTextWithinCap(gameFrom);
 
   mkdirSync(outputDir, { recursive: true });
   // Start from a clean slate so a stale local out/ can never smuggle an old
@@ -129,7 +170,7 @@ function main() {
   writeFileSync(join(outputDir, 'dossier.json'), dossier);
 
   console.log(`dustline-yard: game (${census.files} files, ${census.bytes} bytes) + ${shots.length} screenshots -> ${outputDir}`);
-  console.log(`dustline-yard: dossier.json ${Buffer.byteLength(dossier)} bytes`);
+  console.log(`dustline-yard: dossier.json ${Buffer.byteLength(dossier)} bytes; source text ~${textEstimate} of ${GATE.textMaxBytes} bytes`);
 }
 
 main();

@@ -1,9 +1,11 @@
-// Grenades: three kinds of utility behind one thrower. The frag kills inside
+// Grenades: four kinds of utility behind one thrower. The frag kills inside
 // a radius, the flashbang blinds whoever is facing it, the smoke hangs a
-// cloud that cuts line of sight for bots and player alike. This module owns
-// the inventory, the thrown-projectile pool and the flight physics; what a
+// cloud that cuts line of sight, and the decoy is no grenade at all: a
+// thrown device that lands, arms, and plays fake gunfire on the hearing
+// bus, pulling rotations toward a fight that is not there. This module
+// owns the inventory, the projectile pool and the flight physics; what a
 // grenade DOES when its fuse ends is the simulation's business, delivered
-// through hooks, so a bot's flash and the player's flash resolve identically.
+// through hooks, so a bot's flash and the player's flash resolve alike.
 import * as THREE from 'three';
 import { PALETTE } from './palette.js';
 
@@ -11,14 +13,16 @@ export const UTILITY = {
   frag: { id: 'frag', name: 'Frag Grenade', price: 300, fuse: 2.2 },
   flash: { id: 'flash', name: 'Flashbang', price: 200, fuse: 1.4 },
   smoke: { id: 'smoke', name: 'Smoke Grenade', price: 300, fuse: 1.1 },
+  decoy: { id: 'decoy', name: 'Decoy Device', price: 100, fuse: 1.6 },
 };
-export const UTILITY_ORDER = ['frag', 'flash', 'smoke'];
+export const UTILITY_ORDER = ['frag', 'flash', 'smoke', 'decoy'];
 const GRAVITY = 12;
 const POOL = 6;
-const COLORS = { frag: PALETTE.enemy, flash: PALETTE.lamp, smoke: PALETTE.muted };
+const DECOY_LIFE = 5.5; // seconds of fake gunfire once the device arms
+const COLORS = { frag: PALETTE.enemy, flash: PALETTE.lamp, smoke: PALETTE.muted, decoy: PALETTE.amber };
 
 export function createGrenades(scene, colliders, hooks) {
-  const counts = { frag: 0, flash: 0, smoke: 0 };
+  const counts = { frag: 0, flash: 0, smoke: 0, decoy: 0 };
   const pool = [];
   for (let i = 0; i < POOL; i += 1) {
     const mesh = new THREE.Mesh(
@@ -27,13 +31,14 @@ export function createGrenades(scene, colliders, hooks) {
     );
     mesh.visible = false;
     scene.add(mesh);
-    pool.push({ mesh, active: false, pos: new THREE.Vector3(), vel: new THREE.Vector3(), fuse: 0, type: 'frag', team: '', thrower: null });
+    pool.push({ mesh, active: false, armed: false, pos: new THREE.Vector3(), vel: new THREE.Vector3(), fuse: 0, type: 'frag', team: '', thrower: null, life: 0, nextShot: 0, burst: 0 });
   }
 
   function spawn(type, team, thrower) {
     for (const g of pool) {
       if (g.active) continue;
       g.active = true;
+      g.armed = false;
       g.type = type;
       g.team = team;
       g.thrower = thrower;
@@ -83,9 +88,34 @@ export function createGrenades(scene, colliders, hooks) {
     return false;
   }
 
+  // An armed decoy sits where it landed and sings: bursts of three fake
+  // shots, a breath, another burst, until its battery dies. Each shot goes
+  // to the simulation's hook, which puts it on the hearing bus — the bots
+  // react to the sound exactly as they react to a real rifle.
+  function stepDecoy(g, dt) {
+    g.life -= dt;
+    g.nextShot -= dt;
+    if (g.life <= 0) {
+      g.active = false;
+      g.mesh.visible = false;
+      return;
+    }
+    if (g.nextShot > 0) return;
+    hooks.decoyShot(g.pos, g.team, g.thrower);
+    g.burst += 1;
+    if (g.burst >= 3) {
+      g.burst = 0;
+      g.nextShot = 0.8;
+    } else g.nextShot = 0.13;
+  }
+
   function step(dt) {
     for (const g of pool) {
       if (!g.active) continue;
+      if (g.armed) {
+        stepDecoy(g, dt);
+        continue;
+      }
       g.fuse -= dt;
       g.vel.y -= GRAVITY * dt;
       const nx = g.pos.x + g.vel.x * dt;
@@ -102,11 +132,20 @@ export function createGrenades(scene, colliders, hooks) {
       else g.pos.y = ny;
       g.mesh.position.copy(g.pos);
       if (g.fuse <= 0) {
-        g.active = false;
-        g.mesh.visible = false;
-        if (g.type === 'frag') hooks.fragAt(g.pos, g.thrower, g.team);
-        else if (g.type === 'flash') hooks.flashAt(g.pos);
-        else hooks.smokeAt(g.pos);
+        if (g.type === 'decoy') {
+          // No bang: the device arms where it lies and starts its song.
+          g.armed = true;
+          g.life = DECOY_LIFE;
+          g.nextShot = 0.2;
+          g.burst = 0;
+          g.vel.set(0, 0, 0);
+        } else {
+          g.active = false;
+          g.mesh.visible = false;
+          if (g.type === 'frag') hooks.fragAt(g.pos, g.thrower, g.team);
+          else if (g.type === 'flash') hooks.flashAt(g.pos);
+          else hooks.smokeAt(g.pos);
+        }
       }
     }
   }
@@ -118,10 +157,8 @@ export function createGrenades(scene, colliders, hooks) {
     step,
     buy(type) { counts[type] += 1; },
     reset() {
-      counts.frag = 0;
-      counts.flash = 0;
-      counts.smoke = 0;
-      for (const g of pool) { g.active = false; g.mesh.visible = false; }
+      for (const type of UTILITY_ORDER) counts[type] = 0;
+      for (const g of pool) { g.active = false; g.armed = false; g.mesh.visible = false; }
     },
     hideAll() {
       for (const g of pool) { g.active = false; g.mesh.visible = false; }

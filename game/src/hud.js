@@ -20,7 +20,7 @@ export function createHud(callbacks) {
     feed: $('feed'), banner: $('banner'), bannerText: $('banner-text'),
     buy: $('buy'), buyList: $('buy-list'), buyClose: $('buy-close'), buyMoney: $('buy-money'),
     plantBar: $('plant-bar'), plantFill: $('plant-fill'), plantLabel: $('plant-label'),
-    vignette: $('vignette'), hint: $('hint'), grenades: $('grenades'), scope: $('scope'),
+    vignette: $('vignette'), hint: $('hint'), grenades: $('grenades'), gear: $('gear'), scope: $('scope'),
     flash: $('flash'),
   };
   const cache = {};
@@ -60,8 +60,12 @@ export function createHud(callbacks) {
       setText(els.ammoMag, 'mag', String(mag));
       setText(els.ammoReserve, 'res', '/ ' + reserve);
       setText(els.weaponName, 'wname', name);
-      setText(els.grenades, 'nades', 'FRAG ' + utility.frag + ' · FLASH ' + utility.flash + ' · SMOKE ' + utility.smoke);
+      setText(els.grenades, 'nades', 'FRAG ' + utility.frag + ' · FLASH ' + utility.flash + ' · SMOKE ' + utility.smoke + ' · DECOY ' + utility.decoy);
       els.ammo.classList.toggle('empty', mag === 0);
+    },
+    // The armour line under the ammo: what the buy bought, worn until death.
+    setGear(vest, helmet) {
+      setText(els.gear, 'gear', vest && helmet ? 'KEVLAR + HELMET' : vest ? 'KEVLAR VEST' : helmet ? 'HELMET' : '');
     },
     setMoney(money) { setText(els.money, 'money', '$' + money); },
     setTimer(seconds, phase) {
@@ -90,10 +94,12 @@ export function createHud(callbacks) {
       clearTimeout(hitTimer);
       hitTimer = setTimeout(() => els.hitmarker.classList.remove('on', 'kill'), linger(holdMs));
     },
-    killFeed(text) {
+    // One kill, structured: who, with what, whom — and how, when the how is
+    // worth naming (a headshot, a wallbang through cover).
+    killFeed(killer, victim, weapon, note) {
       const line = document.createElement('div');
       line.className = 'feed-line';
-      line.textContent = text;
+      line.textContent = killer + '  ›  ' + weapon + '  ›  ' + victim + (note ? ' — ' + note : '');
       els.feed.prepend(line);
       while (els.feed.children.length > 5) els.feed.removeChild(els.feed.lastChild);
       setTimeout(() => { if (line.parentNode) line.remove(); }, linger(6000));
@@ -158,7 +164,7 @@ export function createHud(callbacks) {
     },
     hideOverlay() { els.overlay.hidden = true; },
     onPlay(fn) { els.play.addEventListener('click', fn); },
-    buildBuyMenu(list, owned, money, onBuy, utility, onBuyUtility, utilityDefs) {
+    buildBuyMenu(list, owned, money, onBuy, utility, onBuyUtility, utilityDefs, gear, gearList, onBuyGear) {
       els.buyList.innerHTML = '';
       for (const item of list) {
         const row = document.createElement('div');
@@ -178,7 +184,34 @@ export function createHud(callbacks) {
         }
         els.buyList.appendChild(row);
       }
-      const HINTS = { frag: 'AoE blast · key G', flash: 'Blinds on facing · key F', smoke: 'Cuts sight lines · key T' };
+      // Armour rows: worn until death, priced into every bullet both ways.
+      for (const item of gearList || []) {
+        const row = document.createElement('div');
+        row.className = 'buy-row';
+        const have = gear && gear[item.id];
+        row.innerHTML = '<span class="buy-name">' + item.name + '</span>'
+          + '<span class="buy-stat">' + item.stat + '</span>'
+          + '<span class="buy-price">' + (have ? 'WORN' : '$' + item.price) + '</span>';
+        if (!have) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'buy-btn';
+          btn.textContent = 'BUY';
+          btn.disabled = money < item.price;
+          btn.addEventListener('click', () => onBuyGear(item.id));
+          row.appendChild(btn);
+        }
+        els.buyList.appendChild(row);
+      }
+      // Intel, not inventory: the defuse kit is Jackal issue — two of them
+      // carry one on any round they can afford, and it halves their defuse.
+      const kitRow = document.createElement('div');
+      kitRow.className = 'buy-row';
+      kitRow.innerHTML = '<span class="buy-name">Defuse Kit</span>'
+        + '<span class="buy-stat">Jackal issue · defuse 4s → 2s</span>'
+        + '<span class="buy-price">ENEMY</span>';
+      els.buyList.appendChild(kitRow);
+      const HINTS = { frag: 'AoE blast · key G', flash: 'Blinds on facing · key F', smoke: 'Cuts sight lines · key T', decoy: 'Fake gunfire · key V' };
       for (const type of Object.keys(utilityDefs)) {
         const def = utilityDefs[type];
         const row = document.createElement('div');

@@ -154,6 +154,13 @@ export function createBots(scene, map, hooks) {
       finalZ: 0,
       blindUntil: 0,
       utilUsed: false,
+      // The round's buy, written by the team plan's economy: the weapon the
+      // burst damage is priced from, the armour ballistics checks, the
+      // defuse kit that halves defuse time, and the utility actually held.
+      weaponId: 'p9',
+      gear: { vest: false, helmet: false },
+      kit: false,
+      util: { frag: 0, flash: 0, smoke: 0, decoy: 0 },
     };
     for (const proxy of parts.hitboxes) proxy.userData.bot = bot;
     bots.push(bot);
@@ -179,6 +186,11 @@ export function createBots(scene, map, hooks) {
       bot.path.length = 0;
       bot.blindUntil = 0;
       bot.utilUsed = false;
+      bot.weaponId = 'p9';
+      bot.gear.vest = false;
+      bot.gear.helmet = false;
+      bot.kit = false;
+      bot.util = { frag: 0, flash: 0, smoke: 0, decoy: 0 };
       bot.group.rotation.set(0, 0, 0);
       bot.group.position.y = 0;
       if (bot.team === 'enemy') {
@@ -363,8 +375,12 @@ export function createBots(scene, map, hooks) {
     const hit = hooks.rng() < chance;
     const muzzle = tmpEye.set(bot.pos.x, bot.pos.y + 1.35, bot.pos.z);
     if (hit) {
-      const dmg = Math.round(11 + hooks.rng() * 8) * (dist > 25 ? 0.75 : 1);
-      if (found.kind === 'player') hooks.damagePlayer(dmg, bot);
+      // The buy prices the burst: rifle full weight, scattergun four
+      // fifths, eco pistol barely half — and some shots ride high, where
+      // only a helmet saves the player.
+      const wMul = bot.weaponId === 'vk47' ? 1 : bot.weaponId === 'sc12' ? 0.8 : 0.55;
+      const dmg = Math.round(11 + hooks.rng() * 8) * wMul * (dist > 25 ? 0.75 : 1);
+      if (found.kind === 'player') hooks.damagePlayer(dmg, bot, hooks.rng() < 0.18);
       else hooks.damageBot(found.bot, dmg, bot);
       hooks.tracer(muzzle, found.kind === 'player' ? tmp.copy(p.position).setY(1.3) : tmp.copy(found.bot.pos).setY(1.2));
     } else {
@@ -380,11 +396,15 @@ export function createBots(scene, map, hooks) {
   function maybeUtility(bot) {
     const dir = bot.directive;
     if (!dir || !dir.utility || bot.utilUsed) return;
+    if (!bot.util[dir.utility]) return; // the buy decides what can be thrown
     const d = Math.hypot(bot.pos.x - dir.utilityX, bot.pos.z - dir.utilityZ);
     if (d < 10.5) {
       bot.utilUsed = true;
+      bot.util[dir.utility] -= 1;
       hooks.throwUtility(bot, dir.utility, dir.utilityX, dir.utilityZ);
-      hooks.callout(bot, dir.utility === 'flash' ? 'Flashing ' + dir.site + '!' : 'Smoking the cross!');
+      hooks.callout(bot, dir.utility === 'flash' ? 'Flashing ' + dir.site + '!'
+        : dir.utility === 'decoy' ? 'Decoy out — faking ' + dir.site + '!'
+        : 'Smoking the cross!');
     }
   }
 
@@ -468,8 +488,9 @@ export function createBots(scene, map, hooks) {
         if (d < 2.2) {
           faceToward(bot, bomb.x, bomb.z, dt);
           bot.defuseProgress += dt;
-          hooks.defuseTick(bot.defuseProgress);
-          if (bot.defuseProgress >= 4) hooks.bombDefused(bot);
+          const need = bot.kit ? 2 : 4; // a bought defuse kit halves the job
+          hooks.defuseTick(bot.defuseProgress, need);
+          if (bot.defuseProgress >= need) hooks.bombDefused(bot);
           bot.group.position.copy(bot.pos);
           bot.group.rotation.y = bot.yaw;
           return;
