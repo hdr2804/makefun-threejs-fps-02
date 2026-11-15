@@ -69,6 +69,7 @@
 
   #feed { position: fixed; top: 84px; right: 32px; text-align: right; font-size: 13px; color: var(--muted); }
   .feed-line { margin-bottom: 4px; text-shadow: 0 1px 2px #000; }
+  .feed-line.radio span:first-child { color: var(--teal); font-weight: 700; }
 
   #banner { position: fixed; top: 22%; left: 50%; transform: translateX(-50%); max-width: 680px; text-align: center; background: rgba(20, 22, 28, .55); border-top: 2px solid var(--amber); border-bottom: 2px solid var(--amber); padding: 10px 28px; }
   #banner.hidden { display: none; }
@@ -94,6 +95,8 @@
 
   #vignette { position: fixed; inset: 0; pointer-events: none; box-shadow: inset 0 0 120px rgba(196, 85, 45, 0); transition: box-shadow 200ms linear; }
   #vignette.hurt { box-shadow: inset 0 0 120px rgba(196, 85, 45, .75); }
+
+  #flash { position: fixed; inset: 0; pointer-events: none; background: #fff8ea; opacity: 0; }
 
   .overlay { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(25, 28, 34, .86); }
   .overlay[hidden] { display: none; }
@@ -137,6 +140,7 @@
   <div id="hint"></div>
   <div id="plant-bar" class="hidden"><div id="plant-label"></div><div id="plant-track"><div id="plant-fill"></div></div></div>
   <div id="vignette"></div>
+  <div id="flash"></div>
   <div id="grade"></div>
 </div>
 
@@ -150,7 +154,7 @@
 <div id="overlay" class="overlay">
   <section class="panel" role="dialog" aria-modal="true" aria-labelledby="overlay-title">
     <h1 id="overlay-title">DUSTLINE YARD</h1>
-    <p id="overlay-copy">5v5 round-based tactical FPS at golden hour. Plant the spike at site A or B, or eliminate the Jackals. First to 5 rounds takes the yard.</p>
+    <p id="overlay-copy">5v5 round-based tactical FPS at golden hour. Plant the spike at site A or B, or eliminate the Jackals. Your squad runs a plan every round and calls it on the radio — executes, defaults, post-plant holds. First to 5 rounds takes the yard.</p>
     <button id="play" type="button">Deploy</button>
     <ul class="keys">
       <li><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> Move</li>
@@ -159,7 +163,9 @@
       <li><kbd>Right-click</kbd> Aim down sights (LS-7: scope)</li>
       <li><kbd>R</kbd> Reload</li>
       <li><kbd>1</kbd>–<kbd>4</kbd> Switch weapon</li>
-      <li><kbd>G</kbd> Throw grenade</li>
+      <li><kbd>G</kbd> Frag grenade</li>
+      <li><kbd>F</kbd> Flashbang</li>
+      <li><kbd>T</kbd> Smoke grenade</li>
       <li><kbd>E</kbd> Plant the spike (hold, at a site)</li>
       <li><kbd>B</kbd> Buy menu (buy phase)</li>
       <li><kbd>Ctrl</kbd>/<kbd>C</kbd> Crouch</li>

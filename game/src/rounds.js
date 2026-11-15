@@ -4,7 +4,8 @@
 // Money: kill +$200, round win +$600, round loss +$300, plant +$300. The buy menu
 // spends it on weapons and grenades between rounds. All numbers live here; main.js
 // and hud.js only read the state and call the transitions.
-import { WEAPONS, WEAPON_ORDER, GRENADE_PRICE } from './weapons.js';
+import { WEAPONS, WEAPON_ORDER } from './weapons.js';
+import { UTILITY } from './grenades.js';
 
 export const BUY_SECONDS = 10;
 export const ROUND_SECONDS = 100;
@@ -128,9 +129,10 @@ export function createRounds(events) {
     return true;
   }
 
-  function buyGrenade() {
-    if (state.money < GRENADE_PRICE) return false;
-    state.money -= GRENADE_PRICE;
+  function buyUtility(type) {
+    const def = UTILITY[type];
+    if (!def || state.money < def.price) return false;
+    state.money -= def.price;
     return true;
   }
 
@@ -156,7 +158,7 @@ export function createRounds(events) {
     plantAt,
     defused,
     buyWeapon,
-    buyGrenade,
+    buyUtility,
     resetMatch,
     buyList() {
       return WEAPON_ORDER.map((id) => ({

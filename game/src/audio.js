@@ -72,6 +72,8 @@ export function createAudio() {
     kill() { tone(2400, 0.07, 0.25, 'sine'); setTimeout(() => tone(3200, 0.09, 0.25, 'sine'), 70); },
     hurt() { tone(180, 0.18, 0.4, 'sawtooth', 90); },
     explosion() { noise(0.9, 320, 1.0); tone(70, 0.7, 0.7, 'sine', 30); },
+    flash() { noise(0.14, 6000, 0.8, 'highpass'); tone(3400, 0.3, 0.18, 'sine', 2400); },
+    puff() { noise(1.1, 900, 0.16); },
     beep() { tone(880, 0.09, 0.3, 'sine'); },
     plantDone() { tone(660, 0.12, 0.3, 'sine'); setTimeout(() => tone(990, 0.16, 0.3, 'sine'), 120); },
     buy() { tone(520, 0.07, 0.25, 'sine'); setTimeout(() => tone(780, 0.1, 0.25, 'sine'), 80); },

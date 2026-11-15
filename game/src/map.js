@@ -29,6 +29,8 @@ export function createMap(scene) {
   // emissive at a glance and never go black on their shadow side.
   materials.lampGlow = new THREE.MeshBasicMaterial({ color: new THREE.Color(PALETTE.lamp) });
   materials.amberGlow = new THREE.MeshBasicMaterial({ color: new THREE.Color(PALETTE.amber) });
+  materials.tealGlow = new THREE.MeshBasicMaterial({ color: new THREE.Color(PALETTE.teal) });
+  materials.warnGlow = new THREE.MeshBasicMaterial({ color: 0xff2a1a });
   materials.sunGlow = new THREE.MeshBasicMaterial({ color: new THREE.Color(PALETTE.sunset), fog: false });
   materials.skyline = new THREE.MeshBasicMaterial({ color: 0x1d2027, fog: true });
 
@@ -140,6 +142,15 @@ export function createMap(scene) {
   box(1.6, 2.2, 1.6, -9.5, 1.1, 6.5, 'dark');
   box(1.6, 2.2, 1.6, 9.5, 1.1, -6.5, 'dark');
 
+  // Mid-south variety: a pipe rack to crouch behind on the way to B, and a
+  // pallet stack breaking the west-mid sightline.
+  box(2.6, 1.0, 0.6, 7.5, 0.5, 12.8, 'rust');
+  cyl(0.09, 0.09, 2.6, 7.5, 1.25, 12.8, 'steel', false, 8).rotation.z = Math.PI / 2;
+  box(2.0, 0.14, 1.4, -7.5, 0.07, -3.2, 'sand');
+  box(2.0, 0.14, 1.4, -7.5, 0.35, -3.2, 'dark', false);
+  box(2.0, 0.14, 1.4, -7.5, 0.62, -3.2, 'sand', false);
+  box(1.3, 1.3, 1.3, -7.5, 1.3, -3.2, 'crateblue');
+
   // Barrels: rust and sunset clusters that read instantly as a yard. Each cluster
   // shares one collider footprint via its first barrel; the rest are visual.
   function barrels(x, z, n) {
@@ -169,27 +180,29 @@ export function createMap(scene) {
   box(2.0, 0.14, 1.4, -13.2, 0.35, 4.6, 'dark', false);
   box(2.0, 0.14, 1.4, -13.2, 0.62, 4.6, 'sand', false);
 
-  // Floodlight poles: a mast, a lit head, and a real point light at both sites.
-  function floodlight(x, z, withLight) {
+  // Floodlight poles: a mast, a lit head, and a real point light at both
+  // sites. The sites have their own light: A burns sodium amber, B burns teal.
+  function floodlight(x, z, withLight, tint = 'lamp') {
     cyl(0.09, 0.12, 5.6, x, 2.8, z, 'dark', true, 8);
     const head = box(0.9, 0.3, 0.24, x, 5.7, z, 'dark', false);
     head.material = materials.dark;
-    const lampFace = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.2, 0.05), materials.lampGlow);
+    const faceMat = tint === 'teal' ? materials.tealGlow : materials.lampGlow;
+    const lampFace = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.2, 0.05), faceMat);
     lampFace.position.set(x, 5.68, z + 0.14);
     group.add(lampFace);
     const lampBack = lampFace.clone();
     lampBack.position.z = z - 0.14;
     group.add(lampBack);
     if (withLight) {
-      const light = new THREE.PointLight(new THREE.Color(PALETTE.lamp), 55, 22, 1.8);
+      const light = new THREE.PointLight(new THREE.Color(tint === 'teal' ? PALETTE.teal : PALETTE.lamp), 55, 22, 1.8);
       light.position.set(x, 5.4, z);
       scene.add(light);
     }
   }
   floodlight(-20.8, -8.2, true);
-  floodlight(20.6, 8.6, true);
+  floodlight(20.6, 8.6, true, 'teal');
   floodlight(6.8, -15.6, false);
-  floodlight(-7.4, 15.8, false);
+  floodlight(-7.4, 15.8, false, 'teal');
 
   // Pipes running the north wall, and a gantry beam over the mid arch.
   const pipe = cyl(0.14, 0.14, 30, -6, 3.6, -16.7, 'rust', false, 10);
@@ -226,18 +239,21 @@ export function createMap(scene) {
     group.add(tuft);
   }
 
-  // Site markers: flat amber rings on the floor, hazard-striped on the rim.
+  // Site markers: flat rings on the floor, hazard-striped on the rim — amber
+  // at A, teal at B, so a site reads by colour before its letter does.
   function ring(x, z, label) {
+    const color = label === 'B' ? PALETTE.teal : PALETTE.amber;
+    const flatMat = label === 'B' ? 'teal' : 'amber';
     const ringMesh = new THREE.Mesh(
       new THREE.RingGeometry(2.1, 2.5, 40),
-      new THREE.MeshBasicMaterial({ color: new THREE.Color(PALETTE.amber), transparent: true, opacity: 0.9, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(color), transparent: true, opacity: 0.9, side: THREE.DoubleSide }),
     );
     ringMesh.rotation.x = -Math.PI / 2;
     ringMesh.position.set(x, 0.03, z);
     group.add(ringMesh);
     const disc = new THREE.Mesh(
       new THREE.CircleGeometry(2.1, 40),
-      new THREE.MeshBasicMaterial({ color: new THREE.Color(PALETTE.amber), transparent: true, opacity: 0.14, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: new THREE.Color(color), transparent: true, opacity: 0.14, side: THREE.DoubleSide }),
     );
     disc.rotation.x = -Math.PI / 2;
     disc.position.set(x, 0.025, z);
@@ -245,7 +261,7 @@ export function createMap(scene) {
     for (let i = 0; i < 10; i += 1) {
       const a = (i / 10) * Math.PI * 2;
       if (i % 2) continue;
-      flat(0.62, 0.3, x + Math.cos(a) * 2.85, z + Math.sin(a) * 2.85, 'amber', 0.8);
+      flat(0.62, 0.3, x + Math.cos(a) * 2.85, z + Math.sin(a) * 2.85, flatMat, 0.8);
     }
     return { x, z, label };
   }
@@ -259,6 +275,7 @@ export function createMap(scene) {
     B: ['11110', '10001', '10001', '11110', '10001', '11110'],
   };
   function siteSign(x, z, letter, faceDir) {
+    const glow = letter === 'B' ? materials.tealGlow : materials.amberGlow;
     const g = new THREE.Group();
     g.position.set(x, 0, z);
     g.rotation.y = faceDir;
@@ -277,7 +294,7 @@ export function createMap(scene) {
       for (let c = 0; c < rows[r].length; c += 1) {
         if (rows[r][c] !== '1') continue;
         for (const side of [0.13, -0.13]) {
-          const cube = new THREE.Mesh(new THREE.BoxGeometry(0.27, 0.27, 0.05), materials.amberGlow);
+          const cube = new THREE.Mesh(new THREE.BoxGeometry(0.27, 0.27, 0.05), glow);
           cube.position.set((c - 2) * 0.36, 3.45 - r * 0.36, side);
           g.add(cube);
         }
@@ -287,6 +304,73 @@ export function createMap(scene) {
   }
   siteSign(-12.8, -7.6, 'A', 0.5);
   siteSign(11.6, 7.2, 'B', -2.2);
+
+  // The living skyline: a harbour crane beyond the north wall whose jib
+  // slews slowly, a rotating beacon on the silo, red aviation lights on the
+  // tall points, and steam breathing from two vent stacks. tick() below is
+  // their only clock; nothing here collides or stops a bullet.
+  const crane = new THREE.Group();
+  crane.position.set(17, 0, -27);
+  const craneTower = new THREE.Mesh(new THREE.BoxGeometry(1.4, 15, 1.4), materials.skyline);
+  craneTower.position.y = 7.5;
+  crane.add(craneTower);
+  const craneJib = new THREE.Group();
+  craneJib.position.y = 14.6;
+  const jibArm = new THREE.Mesh(new THREE.BoxGeometry(19, 0.55, 0.55), materials.skyline);
+  jibArm.position.x = -5;
+  const jibCounter = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.6, 1.2), materials.skyline);
+  jibCounter.position.x = 5.4;
+  const jibCable = new THREE.Mesh(new THREE.BoxGeometry(0.08, 4.4, 0.08), materials.skyline);
+  jibCable.position.set(-12.5, -2.2, 0);
+  const jibHook = new THREE.Mesh(new THREE.BoxGeometry(1.4, 1.0, 1.4), materials.skyline);
+  jibHook.position.set(-12.5, -4.8, 0);
+  craneJib.add(jibArm, jibCounter, jibCable, jibHook);
+  crane.add(craneJib);
+  group.add(crane);
+
+  const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.17, 10, 8), materials.warnGlow);
+  beacon.position.set(-19.5, 7.0, -13.5);
+  group.add(beacon);
+  const beaconLight = new THREE.PointLight(0xff3524, 0, 16, 1.6);
+  beaconLight.position.copy(beacon.position);
+  scene.add(beaconLight);
+
+  const aviation = [];
+  for (const [x, y, z, phase] of [[-5.0, 4.95, -3.6, 0], [5.0, 4.95, -3.6, 1.4], [-14.5, 5.6, -14.2, 2.6], [0, 5.05, -17.1, 0.8]]) {
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), materials.warnGlow);
+    bulb.position.set(x, y, z);
+    group.add(bulb);
+    aviation.push({ mesh: bulb, phase });
+  }
+
+  // Steam vents: a squat boiler stack by each site pipe run, breathing puffs
+  // on a loop. The puff pool is small and every puff is a reused sphere.
+  const steamMat = new THREE.MeshBasicMaterial({ color: 0xd8d2c4, transparent: true, opacity: 0.2, depthWrite: false });
+  const steamPuffs = [];
+  function steamVent(x, z, phase) {
+    cyl(0.24, 0.3, 1.7, x, 0.85, z, 'rust', true, 10);
+    for (let i = 0; i < 4; i += 1) {
+      const puff = new THREE.Mesh(new THREE.SphereGeometry(0.4, 8, 6), steamMat);
+      puff.position.set(x, 1.8, z);
+      group.add(puff);
+      steamPuffs.push({ mesh: puff, x, z, phase: phase + i * 0.25 });
+    }
+  }
+  steamVent(-21.6, -5.6, 0);
+  steamVent(21.8, 4.2, 0.5);
+
+  function tick(now) {
+    craneJib.rotation.y = Math.sin(now * 0.045) * 0.65;
+    const sweep = (Math.sin(now * 2.4) + 1) / 2;
+    beacon.material = sweep > 0.72 ? materials.warnGlow : materials.dark;
+    beaconLight.intensity = sweep > 0.72 ? 26 : 0;
+    for (const a of aviation) a.mesh.visible = Math.sin(now * 1.6 + a.phase) > 0.2;
+    for (const p of steamPuffs) {
+      const age = (now * 0.22 + p.phase) % 1;
+      p.mesh.position.set(p.x + age * 0.9, 1.8 + age * 3.0, p.z + age * 0.3);
+      p.mesh.scale.setScalar(0.5 + age * 2.1);
+    }
+  }
 
   // Waypoint graph: nodes by id, edges as neighbour lists. Bots walk it.
   const nodes = {
@@ -346,6 +430,7 @@ export function createMap(scene) {
     edges,
     siteA,
     siteB,
+    tick,
     spawns: {
       player: [0, 14.5],
       allies: [[-6, 14.5], [6, 14.5], [-3.2, 15.6], [3.2, 15.6]],

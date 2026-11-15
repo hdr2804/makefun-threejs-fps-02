@@ -1,7 +1,7 @@
 // The DOM HUD: health, ammo, money, timer, score, alive counts, crosshair, hit
-// marker, kill feed, banner, buy menu and overlays. It never touches the simulation;
-// main.js pushes numbers in and reads callbacks out. All values are cached so the
-// DOM is only written when something actually changes.
+// marker, kill feed, radio callouts, banner, buy menu and overlays. It never
+// touches the simulation; sim.js pushes numbers in and reads callbacks out.
+// All values are cached so the DOM is only written when something changes.
 export function createHud(callbacks) {
   // Screenshot staging (?shot=...) freezes the frame for a capture that can take
   // seconds on a slow renderer, so staged HUD dressing must not expire on the
@@ -21,6 +21,7 @@ export function createHud(callbacks) {
     buy: $('buy'), buyList: $('buy-list'), buyClose: $('buy-close'), buyMoney: $('buy-money'),
     plantBar: $('plant-bar'), plantFill: $('plant-fill'), plantLabel: $('plant-label'),
     vignette: $('vignette'), hint: $('hint'), grenades: $('grenades'), scope: $('scope'),
+    flash: $('flash'),
   };
   const cache = {};
   let hitTimer = 0;
@@ -55,11 +56,11 @@ export function createHud(callbacks) {
         els.healthFill.classList.toggle('low', pct <= 30);
       }
     },
-    setAmmo(mag, reserve, name, grenades) {
+    setAmmo(mag, reserve, name, utility) {
       setText(els.ammoMag, 'mag', String(mag));
       setText(els.ammoReserve, 'res', '/ ' + reserve);
       setText(els.weaponName, 'wname', name);
-      setText(els.grenades, 'nades', 'GRENADES ' + grenades);
+      setText(els.grenades, 'nades', 'FRAG ' + utility.frag + ' · FLASH ' + utility.flash + ' · SMOKE ' + utility.smoke);
       els.ammo.classList.toggle('empty', mag === 0);
     },
     setMoney(money) { setText(els.money, 'money', '$' + money); },
@@ -97,6 +98,30 @@ export function createHud(callbacks) {
       while (els.feed.children.length > 5) els.feed.removeChild(els.feed.lastChild);
       setTimeout(() => { if (line.parentNode) line.remove(); }, linger(6000));
     },
+    // A team-plan radio callout: the speaker's name in the team teal, then
+    // their words. Written only by teamplan.js, only from real game events.
+    radio(name, text) {
+      const line = document.createElement('div');
+      line.className = 'feed-line radio';
+      const who = document.createElement('span');
+      who.textContent = name + ' (radio)';
+      const what = document.createElement('span');
+      what.textContent = ' — ' + text;
+      line.append(who, what);
+      els.feed.prepend(line);
+      while (els.feed.children.length > 5) els.feed.removeChild(els.feed.lastChild);
+      setTimeout(() => { if (line.parentNode) line.remove(); }, linger(6000));
+    },
+    // A flashbang in the eyes: white now, clearing over the next seconds.
+    // Strength 0..1 scales both the peak and the clear time.
+    flashScreen(strength) {
+      const el = els.flash;
+      el.style.transition = 'none';
+      el.style.opacity = String(Math.min(1, strength));
+      void el.offsetWidth;
+      el.style.transition = 'opacity ' + (0.4 + strength * 2.8).toFixed(2) + 's linear';
+      el.style.opacity = '0';
+    },
     banner(text, ms = 2600) {
       els.bannerText.textContent = text;
       els.banner.classList.remove('hidden');
@@ -133,7 +158,7 @@ export function createHud(callbacks) {
     },
     hideOverlay() { els.overlay.hidden = true; },
     onPlay(fn) { els.play.addEventListener('click', fn); },
-    buildBuyMenu(list, owned, money, onBuy, onBuyGrenade, grenadePrice) {
+    buildBuyMenu(list, owned, money, onBuy, utility, onBuyUtility, utilityDefs) {
       els.buyList.innerHTML = '';
       for (const item of list) {
         const row = document.createElement('div');
@@ -153,19 +178,23 @@ export function createHud(callbacks) {
         }
         els.buyList.appendChild(row);
       }
-      const nadeRow = document.createElement('div');
-      nadeRow.className = 'buy-row';
-      nadeRow.innerHTML = '<span class="buy-name">Frag Grenade</span>'
-        + '<span class="buy-stat">AoE blast · press G to throw</span>'
-        + '<span class="buy-price">$' + grenadePrice + '</span>';
-      const nadeBtn = document.createElement('button');
-      nadeBtn.type = 'button';
-      nadeBtn.className = 'buy-btn';
-      nadeBtn.textContent = 'BUY';
-      nadeBtn.disabled = money < grenadePrice;
-      nadeBtn.addEventListener('click', onBuyGrenade);
-      nadeRow.appendChild(nadeBtn);
-      els.buyList.appendChild(nadeRow);
+      const HINTS = { frag: 'AoE blast · key G', flash: 'Blinds on facing · key F', smoke: 'Cuts sight lines · key T' };
+      for (const type of Object.keys(utilityDefs)) {
+        const def = utilityDefs[type];
+        const row = document.createElement('div');
+        row.className = 'buy-row';
+        row.innerHTML = '<span class="buy-name">' + def.name + '</span>'
+          + '<span class="buy-stat">' + HINTS[type] + ' · HELD ' + utility[type] + '</span>'
+          + '<span class="buy-price">$' + def.price + '</span>';
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'buy-btn';
+        btn.textContent = 'BUY';
+        btn.disabled = money < def.price;
+        btn.addEventListener('click', () => onBuyUtility(type));
+        row.appendChild(btn);
+        els.buyList.appendChild(row);
+      }
       setText(els.buyMoney, 'buymoney', 'FUNDS $' + money);
     },
     showBuy(show) { els.buy.classList.toggle('hidden', !show); },

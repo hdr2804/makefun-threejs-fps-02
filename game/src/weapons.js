@@ -1,34 +1,34 @@
-// The arsenal: four original weapons plus a frag grenade. Each definition owns its
-// numbers (damage, headshot multiplier, magazine, spread that grows while moving,
-// recoil, price); this module owns the view model, the muzzle flash and the reload
-// cycle. main.js owns the ray and the damage; rounds.js owns the money.
+// The arsenal: four original weapons. Each definition owns its numbers
+// (damage, magazine, spread, recoil, price); this module owns the view model,
+// the muzzle flash and the reload cycle. Where a shot lands and what it costs
+// the target is ballistics.js; the money is rounds.js; utility is grenades.js.
 import * as THREE from 'three';
 import { PALETTE } from './palette.js';
+import { inaccuracy, recoilFor, FIRST_SHOT_PAUSE, PATTERN_RESET } from './ballistics.js';
 
 export const WEAPONS = {
   p9: {
     id: 'p9', name: 'P9 Sidearm', price: 0, auto: false,
-    damage: 26, headMult: 2.5, mag: 12, reserve: 48, gap: 0.16, reload: 1.25,
+    damage: 26, mag: 12, reserve: 48, gap: 0.16, reload: 1.25,
     spreadStill: 0.004, spreadMove: 0.03, kick: 0.006, pellets: 1, range: 60,
   },
   vk47: {
     id: 'vk47', name: 'VK-47 Carbine', price: 900, auto: true,
-    damage: 30, headMult: 2.5, mag: 25, reserve: 75, gap: 0.105, reload: 2.0,
+    damage: 30, mag: 25, reserve: 75, gap: 0.105, reload: 2.0,
     spreadStill: 0.003, spreadMove: 0.035, kick: 0.011, pellets: 1, range: 70,
   },
   sc12: {
     id: 'sc12', name: 'SC-12 Scattergun', price: 700, auto: false,
-    damage: 12, headMult: 2.0, mag: 6, reserve: 24, gap: 0.85, reload: 2.6,
+    damage: 12, mag: 6, reserve: 24, gap: 0.85, reload: 2.6,
     spreadStill: 0.045, spreadMove: 0.07, kick: 0.03, pellets: 8, range: 26,
   },
   ls7: {
     id: 'ls7', name: 'LS-7 Longshot', price: 1500, auto: false,
-    damage: 85, headMult: 2.5, mag: 5, reserve: 20, gap: 0.9, reload: 2.8,
+    damage: 85, mag: 5, reserve: 20, gap: 0.9, reload: 2.8,
     spreadStill: 0.0008, spreadMove: 0.05, kick: 0.028, pellets: 1, range: 90,
   },
 };
 export const WEAPON_ORDER = ['p9', 'vk47', 'sc12', 'ls7'];
-export const GRENADE_PRICE = 300;
 
 function buildViewModel(def) {
   // The view model sits against a dark yard, so the receiver is the light ink colour
@@ -100,7 +100,6 @@ export function createWeapons(camera) {
   const state = {
     current: 'p9',
     owned: ['p9'],
-    grenades: 0,
     cooldown: 0,
     reloadLeft: 0,
     reloadTotal: 1,
@@ -109,6 +108,9 @@ export function createWeapons(camera) {
     bloom: 0,
     ads: false,
     adsBlend: 0,
+    shotsFired: 0,   // rounds into the current burst, indexes the recoil pattern
+    restTime: 99,    // seconds since the last shot; rests reset pattern + earn first-shot accuracy
+    kickPattern: { pitch: 0, yaw: 0 }, // the kick of the most recent round, from ballistics
   };
 
   function showCurrent() {
@@ -116,18 +118,23 @@ export function createWeapons(camera) {
   }
   showCurrent();
 
-  function spread(moveSpeed) {
-    const def = WEAPONS[state.current];
-    const move = Math.min(1, moveSpeed / 5.4);
-    const base = def.spreadStill + (def.spreadMove - def.spreadStill) * move + state.bloom;
-    // Aiming down the sights is the reward for stopping: spread more than halves.
-    return base * (1 - 0.6 * state.adsBlend);
+  function spread(moveSpeed, airborne = false, crouching = false) {
+    return inaccuracy(WEAPONS[state.current], {
+      speed: moveSpeed,
+      airborne,
+      crouching,
+      adsBlend: state.adsBlend,
+      bloom: state.bloom,
+      firstShot: state.restTime > FIRST_SHOT_PAUSE,
+    });
   }
 
   function step(dt) {
     state.cooldown = Math.max(0, state.cooldown - dt);
     state.flash = Math.max(0, state.flash - dt);
     state.bloom = Math.max(0, state.bloom - dt * 0.05);
+    state.restTime += dt;
+    if (state.restTime > PATTERN_RESET) state.shotsFired = 0;
     state.kick += (0 - state.kick) * Math.min(1, dt * 14);
     // Aim-down-sights: the view model glides to the centre and the flash follows it.
     state.adsBlend += ((state.ads ? 1 : 0) - state.adsBlend) * Math.min(1, dt * 16);
@@ -172,6 +179,11 @@ export function createWeapons(camera) {
       state.flash = 0.06;
       state.kick = def.kick;
       state.bloom = Math.min(0.02, state.bloom + def.kick * 0.35);
+      const kick = recoilFor(def, state.shotsFired);
+      state.kickPattern.pitch = kick.pitch;
+      state.kickPattern.yaw = kick.yaw;
+      state.shotsFired += 1;
+      state.restTime = 0;
       return true;
     },
     reload() {

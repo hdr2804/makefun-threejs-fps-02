@@ -4,15 +4,18 @@
 // What this program does, in order:
 //   1. resolves the output directory (/output in the grader, or
 //      MAKEFUN_OUTPUT_DIR when run by hand: `MAKEFUN_OUTPUT_DIR=out node main.ts`)
-//   2. copies the playable game (game/, static ES modules + vendored three.js
+//   2. validates the hand-in against the gate's caps before copying anything:
+//      every screenshot within its byte cap, the game tree within its file
+//      and byte caps — a violation fails here, with the file named
+//   3. copies the playable game (game/, static ES modules + vendored three.js
 //      0.187.0) and the maker's screenshots (screenshots/, 4 JPEG renders) there
-//   3. writes dossier.json with the vendored buildDossier library — the exact
+//   4. writes dossier.json with the vendored buildDossier library — the exact
 //      bytes the sealed gate rebuilds and compares, so the options below mirror
 //      the scorer's own caps from reference/gate.json
 //
 // The game itself is served statically: `node serve.ts` puts game/ on
 // http://localhost:8080 for a human to play in desktop Chrome.
-import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-threejs.ts';
@@ -42,6 +45,52 @@ function screenshotNames(dir) {
     .sort();
 }
 
+// The sealed gate rejects an oversized screenshot outright, and a hand-in
+// that only discovers that at grading time has no recovery. Check every
+// shot's bytes here, by name, so a bad capture fails the build instead.
+function assertScreenshotSizes(dir, names) {
+  for (const name of names) {
+    const bytes = statSync(join(dir, name)).size;
+    if (bytes > GATE.screenshotMaxBytes) {
+      throw new Error(
+        `screenshot ${name} is ${bytes} bytes, over the ${GATE.screenshotMaxBytes}-byte cap: recapture it smaller`,
+      );
+    }
+  }
+}
+
+// A census of the game tree: file count and total bytes, the two numbers
+// the gate caps before it ever opens a file. Vendored three.js dominates
+// the bytes; the game's own modules must stay a small slice of the cap.
+function gameTreeCensus(dir) {
+  let files = 0;
+  let bytes = 0;
+  const stack = [dir];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const path = join(current, entry.name);
+      if (entry.isDirectory()) stack.push(path);
+      else if (entry.isFile()) {
+        files += 1;
+        bytes += statSync(path).size;
+      }
+    }
+  }
+  return { files, bytes };
+}
+
+function assertGameTreeWithinCaps(dir) {
+  const census = gameTreeCensus(dir);
+  if (census.files > GATE.gameMaxFiles) {
+    throw new Error(`game tree holds ${census.files} files, over the ${GATE.gameMaxFiles}-file cap`);
+  }
+  if (census.bytes > GATE.gameMaxBytes) {
+    throw new Error(`game tree holds ${census.bytes} bytes, over the ${GATE.gameMaxBytes}-byte cap`);
+  }
+  return census;
+}
+
 function main() {
   const gameFrom = join(repoRoot, 'game');
   const shotsFrom = join(repoRoot, 'screenshots');
@@ -52,6 +101,8 @@ function main() {
   if (shots.length < 3 || shots.length > GATE.screenshotMax) {
     throw new Error(`expected 3 or 4 screenshots, found ${shots.length}`);
   }
+  assertScreenshotSizes(shotsFrom, shots);
+  const census = assertGameTreeWithinCaps(gameFrom);
 
   mkdirSync(outputDir, { recursive: true });
   // Start from a clean slate so a stale local out/ can never smuggle an old
@@ -77,7 +128,7 @@ function main() {
   }
   writeFileSync(join(outputDir, 'dossier.json'), dossier);
 
-  console.log(`dustline-yard: game + ${shots.length} screenshots -> ${outputDir}`);
+  console.log(`dustline-yard: game (${census.files} files, ${census.bytes} bytes) + ${shots.length} screenshots -> ${outputDir}`);
   console.log(`dustline-yard: dossier.json ${Buffer.byteLength(dossier)} bytes`);
 }
 
